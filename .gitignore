@@ -1,0 +1,16 @@
+node_modules
+
+# Environment variables — never commit these
+.env
+.env.local
+.env*.local
+
+# SQLite local database
+*.db
+*.db-journal
+prisma/dev.db
+
+# Next.js build output
+.next/
+
+/app/generated/prisma

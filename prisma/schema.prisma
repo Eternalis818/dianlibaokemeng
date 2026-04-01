@@ -1,0 +1,78 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "rhel-openssl-1.0.x", "rhel-openssl-3.0.x"]
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model Worker {
+  id          String       @id
+  name        String
+  project     String
+  phone       String?
+  checkIns    CheckIn[]
+  reports     Report[]
+  corrections Correction[]
+}
+
+model CheckIn {
+  id        Int      @id @default(autoincrement())
+  workerId  String
+  worker    Worker   @relation(fields: [workerId], references: [id])
+  project   String
+  createdAt DateTime @default(now())
+}
+
+model Report {
+  id          Int          @id @default(autoincrement())
+  workerId    String
+  worker      Worker       @relation(fields: [workerId], references: [id])
+  workerName  String
+  project     String
+  task        String
+  spec        String
+  qty         String
+  photoPath   String?
+  status      String       @default("pending")
+  createdAt   DateTime     @default(now())
+  corrections Correction[]
+}
+
+model Visa {
+  id        Int      @id @default(autoincrement())
+  title     String
+  amount    Float
+  submitter String
+  project   String   @default("汇龙配电所改造")
+  status    String   @default("pending")
+  createdAt DateTime @default(now())
+}
+
+model Correction {
+  id         Int      @id @default(autoincrement())
+  workerId   String
+  worker     Worker   @relation(fields: [workerId], references: [id])
+  workerName String
+  original   String
+  corrected  String
+  reason     String
+  reportId   Int?
+  report     Report?  @relation(fields: [reportId], references: [id])
+  status     String   @default("pending")
+  createdAt  DateTime @default(now())
+}
+
+model Project {
+  id         Int      @id @default(autoincrement())
+  name       String   @unique
+  code       String   @unique
+  budget     Float    @default(0)
+  spent      Float    @default(0)
+  profitRate Float    @default(0)
+  status     String   @default("active")
+  createdAt  DateTime @default(now())
+}
