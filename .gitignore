@@ -14,3 +14,4 @@ prisma/dev.db
 .next/
 
 /app/generated/prisma
+.netlify/

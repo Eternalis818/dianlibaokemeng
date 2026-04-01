@@ -640,8 +640,10 @@ export default function WorkerPage() {
     r.lang = "zh-CN";
     r.continuous = false;
     r.interimResults = true;
-    r.onresult = (e: SpeechRecognitionEvent) => {
-      const interim = Array.from(e.results).map((res) => res[0].transcript).join("");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    r.onresult = (e: any) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const interim = Array.from(e.results).map((res: any) => res[0].transcript).join("");
       if (e.results[e.results.length - 1].isFinal) {
         setInterimText(""); sendMessage(interim);
       } else {
@@ -917,5 +919,6 @@ export default function WorkerPage() {
 
 // TypeScript stub for browser SpeechRecognition
 interface SpeechRecognitionStatic {
-  new (): SpeechRecognition;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  new (): any;
 }
