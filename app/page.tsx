@@ -3,7 +3,7 @@ import { useRouter } from "next/navigation";
 
 const roles = [
   {
-    href: "/admin/dashboard",
+    href: "/dashboard",
     title: "管理后台",
     desc: "财务核算 / 看板",
     color: "#3b82f6",
@@ -31,7 +31,7 @@ const roles = [
   {
     href: "/worker",
     title: "工人端",
-    desc: "打卡 / 语音报量",
+    desc: "打卡 / 手动报量",
     color: "#10b981",
     icon: (
       <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
