@@ -7,6 +7,7 @@ interface Correction {
   original: string;
   corrected: string;
   reason: string;
+  reportId?: number | null;
   status: "pending" | "approved" | "rejected";
   createdAt: string;
 }
@@ -125,6 +126,14 @@ export default function CorrectionsPage() {
                       {s.label}
                     </span>
                     <span className="text-xs font-medium text-white">{item.workerName}</span>
+                    {item.reportId && (
+                      <span
+                        className="text-xs px-1.5 py-0.5 rounded font-mono"
+                        style={{ background: "rgba(59,130,246,0.1)", color: "var(--accent)", border: "1px solid rgba(59,130,246,0.2)" }}
+                      >
+                        报量#{item.reportId}
+                      </span>
+                    )}
                     <span className="text-xs font-mono ml-auto" style={{ color: "var(--muted)" }}>
                       {fmtTime(item.createdAt)}
                     </span>
