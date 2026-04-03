@@ -1,0 +1,4 @@
+-- AddColumn centerLat, centerLng, geoRadius to Project
+ALTER TABLE "Project" ADD COLUMN IF NOT EXISTS "centerLat" DOUBLE PRECISION;
+ALTER TABLE "Project" ADD COLUMN IF NOT EXISTS "centerLng" DOUBLE PRECISION;
+ALTER TABLE "Project" ADD COLUMN IF NOT EXISTS "geoRadius" INTEGER DEFAULT 300;

@@ -11,6 +11,11 @@ interface Visa {
   createdAt: string;
 }
 
+interface Project {
+  id: number;
+  name: string;
+}
+
 function fmtDate(iso: string) {
   const d = new Date(iso);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -22,10 +27,17 @@ const STATUS_MAP = {
   rejected: { label: "已驳回", bg: "rgba(239,68,68,0.1)",    color: "#ef4444"      },
 };
 
+const EMPTY_FORM = { title: "", amount: "", submitter: "", project: "" };
+
 export default function VisasPage() {
   const [visas, setVisas] = useState<Visa[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [updateError, setUpdateError] = useState<string | null>(null);
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState(EMPTY_FORM);
+  const [submitting, setSubmitting] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
 
   const fetchAll = useCallback(async () => {
     try {
@@ -40,7 +52,46 @@ export default function VisasPage() {
 
   useEffect(() => {
     fetchAll();
+    fetch("/api/projects")
+      .then((r) => r.json())
+      .then((d) => {
+        if (Array.isArray(d) && d.length > 0) {
+          setProjects(d);
+          setForm((f) => ({ ...f, project: f.project || d[0].name }));
+        }
+      })
+      .catch(() => {});
   }, [fetchAll]);
+
+  const handleCreate = async () => {
+    if (!form.title.trim() || !form.submitter.trim() || !form.project.trim()) return;
+    setSubmitting(true);
+    setCreateError(null);
+    try {
+      const res = await fetch("/api/visas", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: form.title.trim(),
+          amount: form.amount ? Number(form.amount) : 0,
+          submitter: form.submitter.trim(),
+          project: form.project.trim(),
+        }),
+      });
+      if (res.ok) {
+        setForm({ ...EMPTY_FORM, project: projects[0]?.name ?? "" });
+        setShowForm(false);
+        fetchAll();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        setCreateError(err.error ?? `创建失败（HTTP ${res.status}）`);
+      }
+    } catch {
+      setCreateError("网络错误，请检查连接后重试");
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   const update = async (id: number, status: "approved" | "rejected") => {
     setUpdateError(null);
@@ -82,10 +133,93 @@ export default function VisasPage() {
               : `共 ${visas.length} 条记录`}
           </p>
         </div>
-        <button className="btn-primary">+ 发起签证</button>
+        <button className="btn-primary text-sm px-4 py-2" onClick={() => setShowForm(true)}>+ 发起签证</button>
       </div>
 
       <div className="px-8 py-6 space-y-3">
+        {/* Create Form */}
+        {showForm && (
+          <div className="glass rounded-xl p-5 mb-2" style={{ borderLeft: "2px solid var(--accent)" }}>
+            <div className="text-sm font-semibold text-white mb-4">发起签证</div>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-2 mb-3">
+              <div className="col-span-2">
+                <div className="text-xs mb-1.5" style={{ color: "var(--muted)" }}>签证标题 *</div>
+                <input
+                  value={form.title}
+                  onChange={(e) => setForm((p) => ({ ...p, title: e.target.value }))}
+                  placeholder="例：汇龙项目基础施工签证"
+                  className="w-full rounded-lg px-3 py-2 text-sm outline-none"
+                  style={{ background: "var(--bg)", border: "1px solid var(--border)", color: "var(--text)" }}
+                />
+              </div>
+              <div>
+                <div className="text-xs mb-1.5" style={{ color: "var(--muted)" }}>金额（元）</div>
+                <input
+                  value={form.amount}
+                  onChange={(e) => setForm((p) => ({ ...p, amount: e.target.value }))}
+                  placeholder="例：12000"
+                  type="number"
+                  className="w-full rounded-lg px-3 py-2 text-sm outline-none"
+                  style={{ background: "var(--bg)", border: "1px solid var(--border)", color: "var(--text)" }}
+                />
+              </div>
+              <div>
+                <div className="text-xs mb-1.5" style={{ color: "var(--muted)" }}>提交人 *</div>
+                <input
+                  value={form.submitter}
+                  onChange={(e) => setForm((p) => ({ ...p, submitter: e.target.value }))}
+                  placeholder="例：张三"
+                  className="w-full rounded-lg px-3 py-2 text-sm outline-none"
+                  style={{ background: "var(--bg)", border: "1px solid var(--border)", color: "var(--text)" }}
+                />
+              </div>
+              <div>
+                <div className="text-xs mb-1.5" style={{ color: "var(--muted)" }}>所属项目 *</div>
+                {projects.length > 0 ? (
+                  <select
+                    value={form.project}
+                    onChange={(e) => setForm((p) => ({ ...p, project: e.target.value }))}
+                    className="w-full rounded-lg px-3 py-2 text-sm outline-none"
+                    style={{ background: "var(--bg)", border: "1px solid var(--border)", color: "var(--text)" }}
+                  >
+                    {projects.map((p) => (
+                      <option key={p.id} value={p.name} style={{ background: "#0d1929" }}>{p.name}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    value={form.project}
+                    onChange={(e) => setForm((p) => ({ ...p, project: e.target.value }))}
+                    placeholder="例：汇龙配电所改造"
+                    className="w-full rounded-lg px-3 py-2 text-sm outline-none"
+                    style={{ background: "var(--bg)", border: "1px solid var(--border)", color: "var(--text)" }}
+                  />
+                )}
+              </div>
+            </div>
+            {createError && (
+              <div className="mb-3 px-3 py-2 rounded-lg text-xs" style={{ background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.25)", color: "#f87171" }}>
+                {createError}
+              </div>
+            )}
+            <div className="flex gap-2">
+              <button
+                onClick={handleCreate}
+                disabled={!form.title.trim() || !form.submitter.trim() || !form.project.trim() || submitting}
+                className="btn-primary text-sm px-4 py-2 disabled:opacity-50"
+              >
+                {submitting ? "提交中..." : "确认发起"}
+              </button>
+              <button
+                onClick={() => { setShowForm(false); setForm({ ...EMPTY_FORM, project: projects[0]?.name ?? "" }); setCreateError(null); }}
+                className="btn-ghost text-sm"
+              >
+                取消
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Error banner */}
         {updateError && (
           <div
