@@ -24,6 +24,7 @@ interface Visa {
   id: number;
   title: string;
   amount: number;
+  project: string;
   status: string;
 }
 
@@ -278,69 +279,85 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Projects + Alerts */}
-        <div className="grid grid-cols-3 gap-5">
-          {/* Projects */}
-          <div className="col-span-2 glass rounded-xl p-6">
-            <div className="flex items-center justify-between mb-5">
-              <h2 className="font-medium text-white text-sm">在施项目</h2>
-              <a href="/projects" className="btn-ghost text-xs">管理项目</a>
+        {/* Project Tiles — full width */}
+        <div>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="font-medium text-white text-sm">项目磁贴</h2>
+            <a href="/projects" className="btn-ghost text-xs">管理项目</a>
+          </div>
+          {!loading && activeProjects.length === 0 ? (
+            <div className="glass rounded-xl p-8 text-center text-sm" style={{ color: "var(--muted)" }}>
+              暂无在施项目，前往项目管理添加
             </div>
-            <div className="space-y-4">
-              {!loading && activeProjects.length === 0 && (
-                <div className="text-sm text-center py-6" style={{ color: "var(--muted)" }}>
-                  暂无在施项目，前往项目管理添加
-                </div>
-              )}
+          ) : (
+            <div className="grid grid-cols-2 gap-4">
               {activeProjects.map((p) => {
                 const pct = p.budget > 0 ? Math.min(Math.round((p.spent / p.budget) * 100), 100) : 0;
                 const uniqueWorkers = new Set(
                   checkins.filter((ci) => ci.project === p.name).map((ci) => ci.workerId)
                 );
                 const projectWorkerCount = uniqueWorkers.size;
-                const projectReportCount = todayReports.filter(
-                  (r) => r.project === p.name
+                const projectReportCount = todayReports.filter((r) => r.project === p.name).length;
+                const projectPendingVisas = visas.filter(
+                  (v) => v.project === p.name && v.status === "pending"
                 ).length;
+
                 return (
-                  <div key={p.id} className="glass-sm rounded-lg p-4">
-                    <div className="flex items-start justify-between mb-3">
+                  <a
+                    key={p.id}
+                    href="/visas"
+                    className="glass rounded-xl p-5 block transition-all"
+                    style={{ textDecoration: "none" }}
+                  >
+                    {/* Header */}
+                    <div className="flex items-start justify-between mb-4">
                       <div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-white font-medium text-sm">{p.name}</span>
+                        <div className="text-base font-semibold text-white mb-0.5">{p.name}</div>
+                        <div className="text-xs font-mono" style={{ color: "var(--muted)" }}>{p.code}</div>
+                      </div>
+                      <div className="flex flex-col items-end gap-1.5">
+                        <span
+                          className="text-[10px] px-2 py-0.5 rounded-full font-mono"
+                          style={{ background: "rgba(16,185,129,0.12)", color: "var(--green)" }}
+                        >
+                          施工中
+                        </span>
+                        {projectPendingVisas > 0 && (
                           <span
                             className="text-[10px] px-2 py-0.5 rounded-full font-mono"
-                            style={{
-                              background: "rgba(16,185,129,0.12)",
-                              color: "var(--green)",
-                            }}
+                            style={{ background: "rgba(245,158,11,0.12)", color: "var(--amber)" }}
                           >
-                            施工中
+                            {projectPendingVisas} 签证待批
                           </span>
-                        </div>
-                        <div
-                          className="text-[11px] mt-0.5 font-mono"
-                          style={{ color: "var(--muted)" }}
-                        >
-                          {p.code} · {loading ? "—" : projectWorkerCount}人在场 · 今日{loading ? "—" : projectReportCount}条报量
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-[11px]" style={{ color: "var(--muted)" }}>
-                          利润率
-                        </div>
-                        <div
-                          className="text-sm font-mono font-semibold"
-                          style={{ color: "var(--green)" }}
-                        >
-                          {p.profitRate > 0 ? `${p.profitRate}%` : "—"}
-                        </div>
+                        )}
                       </div>
                     </div>
-                    <div className="flex items-center gap-3 mb-2">
-                      <div
-                        className="flex-1 h-1.5 rounded-full"
-                        style={{ background: "var(--surface2)" }}
-                      >
+
+                    {/* Today mini-stats */}
+                    <div className="grid grid-cols-3 gap-2 mb-4">
+                      {[
+                        { label: "今日在场", value: loading ? "—" : `${projectWorkerCount}人`, color: "var(--green)" },
+                        { label: "今日报量", value: loading ? "—" : `${projectReportCount}条`, color: "var(--accent)" },
+                        { label: "利润率", value: p.profitRate > 0 ? `${p.profitRate}%` : "—", color: "var(--green)" },
+                      ].map((s) => (
+                        <div
+                          key={s.label}
+                          className="text-center py-2.5 px-2 rounded-lg"
+                          style={{ background: "var(--surface)" }}
+                        >
+                          <div className="text-[10px] mb-0.5" style={{ color: "var(--muted)" }}>{s.label}</div>
+                          <div className="text-sm font-mono font-semibold" style={{ color: s.color }}>{s.value}</div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Budget progress */}
+                    <div>
+                      <div className="flex justify-between text-[11px] font-mono mb-1.5" style={{ color: "var(--muted)" }}>
+                        <span>预算执行</span>
+                        <span style={{ color: pct >= 90 ? "#ef4444" : "var(--accent)" }}>{pct}%</span>
+                      </div>
+                      <div className="h-1.5 rounded-full" style={{ background: "var(--surface2, rgba(59,130,246,0.08))" }}>
                         <div
                           className="h-full rounded-full"
                           style={{
@@ -351,29 +368,20 @@ export default function DashboardPage() {
                           }}
                         />
                       </div>
-                      <span
-                        className="text-xs font-mono w-8 text-right"
-                        style={{ color: pct >= 90 ? "#ef4444" : "var(--muted)" }}
-                      >
-                        {pct}%
-                      </span>
+                      <div className="flex justify-between text-[11px] font-mono mt-1.5" style={{ color: "var(--muted)" }}>
+                        <span>已用 ¥{(p.spent / 10000).toFixed(1)}万</span>
+                        <span>预算 ¥{(p.budget / 10000).toFixed(0)}万</span>
+                      </div>
                     </div>
-                    <div
-                      className="flex justify-between text-[11px] font-mono"
-                      style={{ color: "var(--muted)" }}
-                    >
-                      <span>
-                        已用 ¥{(p.spent / 10000).toFixed(1)}万 / 预算 ¥
-                        {(p.budget / 10000).toFixed(0)}万
-                      </span>
-                      <span style={{ color: pct >= 90 ? "#ef4444" : "var(--accent)" }}>进度 {pct}%</span>
-                    </div>
-                  </div>
+                  </a>
                 );
               })}
             </div>
-          </div>
+          )}
+        </div>
 
+        {/* Alerts + Recent Logs */}
+        <div className="grid grid-cols-3 gap-5">
           {/* Alerts */}
           <div className="glass rounded-xl p-6">
             <div className="flex items-center justify-between mb-5">
@@ -401,20 +409,13 @@ export default function DashboardPage() {
                     key={i}
                     className="rounded-lg p-3.5"
                     style={{
-                      background: a.warn
-                        ? "rgba(245,158,11,0.06)"
-                        : "rgba(59,130,246,0.06)",
+                      background: a.warn ? "rgba(245,158,11,0.06)" : "rgba(59,130,246,0.06)",
                       borderLeft: `2px solid ${a.warn ? "var(--amber)" : "var(--accent)"}`,
                     }}
                   >
-                    <p className="text-xs leading-relaxed" style={{ color: "var(--text)" }}>
-                      {a.msg}
-                    </p>
+                    <p className="text-xs leading-relaxed" style={{ color: "var(--text)" }}>{a.msg}</p>
                     {a.action && (
-                      <button
-                        className="text-xs mt-2 font-medium"
-                        style={{ color: a.warn ? "var(--amber)" : "var(--accent)" }}
-                      >
+                      <button className="text-xs mt-2 font-medium" style={{ color: a.warn ? "var(--amber)" : "var(--accent)" }}>
                         {a.action} →
                       </button>
                     )}
@@ -423,72 +424,52 @@ export default function DashboardPage() {
               </div>
             )}
           </div>
+
+          {/* Recent Logs — now col-span-2 */}
+          <div className="col-span-2 glass rounded-xl p-6">
+            <div className="flex items-center justify-between mb-5">
+              <h2 className="font-medium text-white text-sm">今日报量记录</h2>
+              <span className="text-xs font-mono" style={{ color: "var(--muted)" }}>
+                {!loading && `共 ${todayReports.length} 条`}
+              </span>
+            </div>
+            {loading ? (
+              <div className="flex items-center justify-center py-8">
+                <div className="w-4 h-4 rounded-full border-2 animate-spin" style={{ borderColor: "var(--accent)", borderTopColor: "transparent" }} />
+              </div>
+            ) : recentLogs.length === 0 ? (
+              <div className="text-center py-8 text-sm" style={{ color: "var(--muted)" }}>暂无今日报量记录</div>
+            ) : (
+              <table className="w-full">
+                <thead>
+                  <tr className="text-left border-b text-xs" style={{ color: "var(--muted)", borderColor: "var(--border)" }}>
+                    <th className="pb-3 font-normal w-14">时间</th>
+                    <th className="pb-3 font-normal w-16">工人</th>
+                    <th className="pb-3 font-normal">工序</th>
+                    <th className="pb-3 font-normal w-32">规格 / 工量</th>
+                    <th className="pb-3 font-normal text-right w-16">项目</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {recentLogs.map((r) => (
+                    <tr key={r.id} className="text-xs border-t" style={{ borderColor: "rgba(59,130,246,0.08)" }}>
+                      <td className="py-3 font-mono" style={{ color: "var(--muted)" }}>{fmtTime(r.createdAt)}</td>
+                      <td className="py-3 text-white">{r.workerName}</td>
+                      <td className="py-3" style={{ color: "var(--text)" }}>{r.task}</td>
+                      <td className="py-3 font-mono text-xs" style={{ color: "var(--muted)" }}>{r.spec} {r.qty}</td>
+                      <td className="py-3 text-right">
+                        <span className="px-2 py-0.5 rounded text-[10px] font-mono" style={{ background: "rgba(59,130,246,0.1)", color: "#60a5fa" }}>
+                          {r.project.slice(0, 2)}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
         </div>
 
-        {/* Recent Logs */}
-        <div className="glass rounded-xl p-6">
-          <div className="flex items-center justify-between mb-5">
-            <h2 className="font-medium text-white text-sm">今日报量记录</h2>
-            <span className="text-xs font-mono" style={{ color: "var(--muted)" }}>
-              {!loading && `共 ${todayReports.length} 条`}
-            </span>
-          </div>
-          {loading ? (
-            <div className="flex items-center justify-center py-8">
-              <div
-                className="w-4 h-4 rounded-full border-2 animate-spin"
-                style={{ borderColor: "var(--accent)", borderTopColor: "transparent" }}
-              />
-            </div>
-          ) : recentLogs.length === 0 ? (
-            <div className="text-center py-8 text-sm" style={{ color: "var(--muted)" }}>
-              暂无今日报量记录
-            </div>
-          ) : (
-            <table className="w-full">
-              <thead>
-                <tr
-                  className="text-left border-b text-xs"
-                  style={{ color: "var(--muted)", borderColor: "var(--border)" }}
-                >
-                  <th className="pb-3 font-normal w-14">时间</th>
-                  <th className="pb-3 font-normal w-16">工人</th>
-                  <th className="pb-3 font-normal">工序</th>
-                  <th className="pb-3 font-normal w-32">规格 / 工量</th>
-                  <th className="pb-3 font-normal text-right w-16">项目</th>
-                </tr>
-              </thead>
-              <tbody>
-                {recentLogs.map((r) => (
-                  <tr
-                    key={r.id}
-                    className="text-xs border-t"
-                    style={{ borderColor: "rgba(59,130,246,0.08)" }}
-                  >
-                    <td className="py-3 font-mono" style={{ color: "var(--muted)" }}>
-                      {fmtTime(r.createdAt)}
-                    </td>
-                    <td className="py-3 text-white">{r.workerName}</td>
-                    <td className="py-3" style={{ color: "var(--text)" }}>
-                      {r.task}
-                    </td>
-                    <td className="py-3 font-mono text-xs" style={{ color: "var(--muted)" }}>
-                      {r.spec} {r.qty}
-                    </td>
-                    <td className="py-3 text-right">
-                      <span
-                        className="px-2 py-0.5 rounded text-[10px] font-mono"
-                        style={{ background: "rgba(59,130,246,0.1)", color: "#60a5fa" }}
-                      >
-                        {r.project.slice(0, 2)}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
       </div>
     </div>
   );
