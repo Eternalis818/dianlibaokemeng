@@ -26,10 +26,15 @@ interface Report {
 
 interface Visa {
   id: number;
+  serialNo?: string | null;
+  type: string;
   title: string;
   amount: number;
   submitter: string;
   project: string;
+  projectCode?: string | null;
+  reason?: string | null;
+  daysExtended?: number | null;
   status: Status;
   createdAt: string;
 }
@@ -76,6 +81,22 @@ function StatusBadge({ status }: { status: Status }) {
       style={{ color: s.color, background: s.bg, border: `1px solid ${s.border}` }}
     >
       {s.label}
+    </span>
+  );
+}
+
+// ─── Type Badge ───────────────────────────────────────────────────────────────
+function TypeBadge({ type }: { type: string }) {
+  const isQuantity = type === "quantity";
+  return (
+    <span
+      className="text-xs px-2 py-0.5 rounded-full font-medium shrink-0"
+      style={isQuantity
+        ? { color: "#60a5fa", background: "rgba(59,130,246,0.1)", border: "1px solid rgba(59,130,246,0.25)" }
+        : { color: "#c084fc", background: "rgba(168,85,247,0.1)", border: "1px solid rgba(168,85,247,0.25)" }
+      }
+    >
+      {isQuantity ? "工程量" : "工期"}
     </span>
   );
 }
@@ -340,6 +361,71 @@ function ReportsTab({
   );
 }
 
+// ─── Visa Card (pending action) ────────────────────────────────────────────────
+function VisaActionCard({
+  visa,
+  onApprove,
+  onReject,
+}: {
+  visa: Visa;
+  onApprove: (id: number) => void;
+  onReject: (id: number) => void;
+}) {
+  return (
+    <div
+      className="rounded-2xl p-4"
+      style={{ background: "var(--surface)", border: "1px solid rgba(245,158,11,0.2)" }}
+    >
+      <div className="flex items-start justify-between mb-2">
+        <div className="flex-1 pr-3">
+          <div className="flex items-center gap-2 mb-1">
+            <TypeBadge type={visa.type} />
+            {visa.serialNo && (
+              <span className="text-xs font-mono" style={{ color: "var(--muted)" }}>{visa.serialNo}</span>
+            )}
+          </div>
+          <div className="text-sm font-medium text-white leading-snug">{visa.title}</div>
+          <div className="text-xs mt-1" style={{ color: "var(--muted)" }}>
+            {visa.submitter} · {fmtDate(visa.createdAt)}
+          </div>
+          {visa.reason && (
+            <div className="text-xs mt-1 line-clamp-2" style={{ color: "var(--muted)" }}>
+              {visa.reason}
+            </div>
+          )}
+        </div>
+        <div className="text-right shrink-0">
+          {visa.type === "quantity" ? (
+            <div className="font-mono font-bold text-base" style={{ color: "var(--amber)" }}>
+              ¥{visa.amount.toLocaleString()}
+            </div>
+          ) : (
+            <div className="font-mono font-bold text-base" style={{ color: "#c084fc" }}>
+              +{visa.daysExtended ?? 0}天
+            </div>
+          )}
+        </div>
+      </div>
+      <div className="flex gap-2 mt-3">
+        <button
+          onClick={() => onApprove(visa.id)}
+          className="flex-1 py-2 rounded-xl text-sm font-medium transition-all active:scale-95"
+          style={{ background: "rgba(16,185,129,0.12)", border: "1px solid rgba(16,185,129,0.3)", color: "var(--green)" }}
+        >
+          批复
+        </button>
+        <button
+          onClick={() => onReject(visa.id)}
+          className="flex-1 py-2 rounded-xl text-sm font-medium transition-all active:scale-95"
+          style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.2)", color: "#ef4444" }}
+        >
+          驳回
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ─── Visas Tab ─────────────────────────────────────────────────────────────────
 function VisasTab({
   visas,
@@ -350,100 +436,116 @@ function VisasTab({
   onApprove: (id: number) => void;
   onReject: (id: number) => void;
 }) {
-  const pending = visas.filter((v) => v.status === "pending");
-  const done = visas.filter((v) => v.status !== "pending");
-  const pendingTotal = pending.reduce((s, v) => s + v.amount, 0);
+  const [filterProject, setFilterProject] = useState<string>("all");
+
+  const projects = Array.from(new Set(visas.map((v) => v.project))).sort();
+  const filtered = filterProject === "all" ? visas : visas.filter((v) => v.project === filterProject);
+
+  // Group by project
+  const grouped = filtered.reduce<Record<string, Visa[]>>((acc, v) => {
+    if (!acc[v.project]) acc[v.project] = [];
+    acc[v.project].push(v);
+    return acc;
+  }, {});
+
+  const allPending = filtered.filter((v) => v.status === "pending");
+  const pendingTotal = allPending.reduce((s, v) => s + v.amount, 0);
 
   return (
     <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
-      {pending.length > 0 && (
-        <>
-          <div
-            className="rounded-2xl px-4 py-3 flex justify-between items-center"
-            style={{ background: "rgba(59,130,246,0.08)", border: "1px solid rgba(59,130,246,0.18)" }}
-          >
-            <span className="text-sm" style={{ color: "var(--muted)" }}>待批复签证总额</span>
-            <span className="font-mono font-bold text-lg" style={{ color: "var(--accent)" }}>
-              ¥{pendingTotal.toLocaleString()}
-            </span>
-          </div>
-          <div>
-            <div className="text-xs mb-3 font-medium" style={{ color: "var(--muted)" }}>
-              待批复 · {pending.length} 笔
-            </div>
-            <div className="space-y-3">
-              {pending.map((v) => (
-                <div
-                  key={v.id}
-                  className="rounded-2xl p-4"
-                  style={{ background: "var(--surface)", border: "1px solid rgba(245,158,11,0.2)" }}
-                >
-                  <div className="flex items-start justify-between mb-3">
-                    <div className="flex-1 pr-3">
-                      <div className="text-sm font-medium text-white leading-snug">{v.title}</div>
-                      <div className="text-xs mt-1" style={{ color: "var(--muted)" }}>
-                        {v.submitter} · {fmtDate(v.createdAt)}
-                      </div>
-                    </div>
-                    <div className="font-mono font-bold text-base shrink-0" style={{ color: "var(--amber)" }}>
-                      ¥{v.amount.toLocaleString()}
-                    </div>
-                  </div>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => onApprove(v.id)}
-                      className="flex-1 py-2 rounded-xl text-sm font-medium transition-all active:scale-95"
-                      style={{
-                        background: "rgba(16,185,129,0.12)",
-                        border: "1px solid rgba(16,185,129,0.3)",
-                        color: "var(--green)",
-                      }}
-                    >
-                      批复
-                    </button>
-                    <button
-                      onClick={() => onReject(v.id)}
-                      className="flex-1 py-2 rounded-xl text-sm font-medium transition-all active:scale-95"
-                      style={{
-                        background: "rgba(239,68,68,0.08)",
-                        border: "1px solid rgba(239,68,68,0.2)",
-                        color: "#ef4444",
-                      }}
-                    >
-                      驳回
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </>
-      )}
-
-      {done.length > 0 && (
-        <div>
-          <div className="text-xs mb-3 font-medium" style={{ color: "var(--muted)" }}>已处理 · {done.length} 笔</div>
-          <div className="space-y-2">
-            {done.map((v) => (
-              <div
-                key={v.id}
-                className="flex items-center justify-between px-4 py-3 rounded-xl"
-                style={{ background: "var(--surface)", border: "1px solid var(--border)", opacity: 0.7 }}
-              >
-                <div className="flex-1 pr-3">
-                  <div className="text-sm text-white line-clamp-1">{v.title}</div>
-                  <div className="text-xs mt-0.5 font-mono" style={{ color: "var(--muted)" }}>
-                    ¥{v.amount.toLocaleString()}
-                  </div>
-                </div>
-                <StatusBadge status={v.status} />
-              </div>
-            ))}
-          </div>
+      {/* Project filter pills */}
+      {projects.length > 1 && (
+        <div className="flex gap-2 overflow-x-auto pb-0.5" style={{ scrollbarWidth: "none" }}>
+          {["all", ...projects].map((p) => (
+            <button
+              key={p}
+              onClick={() => setFilterProject(p)}
+              className="shrink-0 px-3 py-1.5 rounded-full text-xs font-medium transition-all active:scale-95"
+              style={filterProject === p
+                ? { background: "var(--accent)", color: "#fff" }
+                : { background: "var(--surface)", color: "var(--muted)", border: "1px solid var(--border)" }
+              }
+            >
+              {p === "all" ? "全部项目" : p}
+            </button>
+          ))}
         </div>
       )}
 
-      {pending.length === 0 && done.length === 0 && (
+      {/* Pending summary bar */}
+      {allPending.length > 0 && (
+        <div
+          className="rounded-2xl px-4 py-3 flex justify-between items-center"
+          style={{ background: "rgba(59,130,246,0.08)", border: "1px solid rgba(59,130,246,0.18)" }}
+        >
+          <span className="text-sm" style={{ color: "var(--muted)" }}>
+            待批复 {allPending.length} 笔
+          </span>
+          <span className="font-mono font-bold text-lg" style={{ color: "var(--accent)" }}>
+            ¥{pendingTotal.toLocaleString()}
+          </span>
+        </div>
+      )}
+
+      {/* Grouped by project */}
+      {Object.entries(grouped).map(([project, projectVisas]) => {
+        const pendingInProject = projectVisas.filter((v) => v.status === "pending");
+        const doneInProject = projectVisas.filter((v) => v.status !== "pending");
+
+        return (
+          <div key={project}>
+            {/* Project header */}
+            <div className="flex items-center justify-between mb-3">
+              <div className="text-xs font-semibold tracking-wide" style={{ color: "var(--muted)" }}>
+                {project}
+              </div>
+              {pendingInProject.length > 0 && (
+                <span
+                  className="text-xs px-2 py-0.5 rounded-full font-mono"
+                  style={{ background: "rgba(245,158,11,0.1)", color: "var(--amber)", border: "1px solid rgba(245,158,11,0.2)" }}
+                >
+                  {pendingInProject.length} 待批
+                </span>
+              )}
+            </div>
+
+            {/* Pending visas with action buttons */}
+            {pendingInProject.length > 0 && (
+              <div className="space-y-3 mb-3">
+                {pendingInProject.map((v) => (
+                  <VisaActionCard key={v.id} visa={v} onApprove={onApprove} onReject={onReject} />
+                ))}
+              </div>
+            )}
+
+            {/* Done visas (compact) */}
+            {doneInProject.length > 0 && (
+              <div className="space-y-2">
+                {doneInProject.map((v) => (
+                  <div
+                    key={v.id}
+                    className="flex items-center justify-between px-4 py-3 rounded-xl"
+                    style={{ background: "var(--surface)", border: "1px solid var(--border)", opacity: 0.7 }}
+                  >
+                    <div className="flex items-center gap-2 flex-1 pr-3 min-w-0">
+                      <TypeBadge type={v.type} />
+                      <span className="text-sm text-white truncate">{v.title}</span>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="text-xs font-mono" style={{ color: "var(--muted)" }}>
+                        {v.type === "quantity" ? `¥${v.amount.toLocaleString()}` : `+${v.daysExtended ?? 0}天`}
+                      </span>
+                      <StatusBadge status={v.status} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+
+      {filtered.length === 0 && (
         <div className="flex items-center justify-center py-16">
           <span className="text-sm" style={{ color: "var(--muted)" }}>暂无签证记录</span>
         </div>
