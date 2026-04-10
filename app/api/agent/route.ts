@@ -2,6 +2,15 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { rateLimit } from "@/lib/rate-limit";
 
+// 通用 LLM 配置（兼容 LLM_* 和 VOLC_* 环境变量）
+function getLLMConfig() {
+  return {
+    apiKey: process.env.LLM_API_KEY || process.env.VOLC_API_KEY || "",
+    model: process.env.LLM_MODEL || process.env.VOLC_MODEL || "",
+    baseUrl: (process.env.LLM_BASE_URL || process.env.VOLC_BASE_URL || "").replace(/\/+$/, ""),
+  };
+}
+
 // ─── Tool definitions ───────────────────────────────────────────────────────
 
 const TOOLS = [
@@ -350,7 +359,8 @@ export async function POST(req: NextRequest) {
       })),
     ];
 
-    const VOLC_URL = `${process.env.VOLC_BASE_URL}/chat/completions`;
+    const VOLC_URL = `${getLLMConfig().baseUrl}/chat/completions`;
+    const { apiKey, model: llmModel } = getLLMConfig();
 
     // ── Tool calling loop（最多 4 轮）──
     let rounds = 0;
@@ -361,10 +371,10 @@ export async function POST(req: NextRequest) {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${process.env.VOLC_API_KEY}`,
+          Authorization: `Bearer ${apiKey}`,
         },
         body: JSON.stringify({
-          model: process.env.VOLC_MODEL,
+          model: llmModel,
           messages: apiMessages,
           tools: TOOLS,
           tool_choice: "auto",

@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { rateLimit } from "@/lib/rate-limit";
+import { chatCompletion } from "@/lib/llm";
 
 export async function POST(req: NextRequest) {
   // RH5: rate limit — 5 req/min per IP
@@ -10,10 +11,6 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    if (!process.env.VOLC_API_KEY) {
-      return Response.json({ content: "AI 服务未配置" }, { status: 500 });
-    }
-
     // RH4: UTC day boundary
     const todayUTC = new Date();
     todayUTC.setUTCHours(0, 0, 0, 0);
@@ -40,29 +37,19 @@ export async function POST(req: NextRequest) {
     const SYSTEM_PROMPT = `你是 PowerLink 工地 AI 助手。根据下面的真实数据，生成一份简洁的老板汇报。
 要求：≤80字，口语化，直接，不废话，不加标题，不用"如有问题请联系"类套话。`;
 
-    const res = await fetch(`${process.env.VOLC_BASE_URL}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${process.env.VOLC_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: process.env.VOLC_MODEL,
-        messages: [
+    let content: string;
+    try {
+      content = await chatCompletion(
+        [
           { role: "system", content: SYSTEM_PROMPT },
           { role: "user", content: dataContext },
         ],
-        max_tokens: 200,
-        temperature: 0.6,
-      }),
-    });
-
-    if (!res.ok) {
+        { maxTokens: 200, temperature: 0.6 },
+      );
+    } catch {
       return Response.json({ content: "AI 服务暂时不可用，请稍后重试。" }, { status: 200 });
     }
 
-    const data = await res.json();
-    const content: string = data.choices?.[0]?.message?.content ?? "今日数据汇总生成失败，请稍后重试。";
     return Response.json({ content });
   } catch (e) {
     console.error("boss/summary error:", e);

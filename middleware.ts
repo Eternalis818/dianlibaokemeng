@@ -6,6 +6,8 @@ const WORKER_PATHS = [
   "/api/reports",
   "/api/corrections",
   "/api/worker/chat",
+  "/api/worker/smart-parse",
+  "/api/worker/photo-review",
   "/api/upload",
   "/api/auth/admin",
 ];

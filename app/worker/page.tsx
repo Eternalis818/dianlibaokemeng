@@ -2,7 +2,22 @@
 import { useState, useEffect } from "react";
 
 type Report = { 工序: string; 规格: string; 数量: string };
-type Phase = "login" | "checkin" | "form" | "confirm" | "done";
+type Phase = "login" | "checkin" | "form" | "smart-result" | "confirm" | "done";
+type FormMode = "manual" | "smart";
+
+// 智能拆解后的清单条目
+type ParsedBOQItem = {
+  code: string;
+  name: string;
+  characteristics: string;
+  unit: string;
+  quantity: number;
+  unitPrice: number | null;
+  totalPrice: number | null;
+  priceItemId: number | null;
+  haimaiCode?: string;
+  chenxiCode?: string;
+};
 type Worker = { id: string; name: string; project: string; wageType?: string | null; wageRate?: number | null };
 
 type ReportRecord = {
@@ -293,7 +308,7 @@ function LoginScreen({ onLogin }: { onLogin: (w: Worker) => void }) {
     setListLoading(true);
     fetch("/api/workers")
       .then((r) => r.json())
-      .then((data) => { setListWorkers(data); setListLoading(false); })
+      .then((data) => { setListWorkers(Array.isArray(data) ? data : []); setListLoading(false); })
       .catch(() => setListLoading(false));
   };
 
@@ -634,6 +649,428 @@ function CheckInScreen({
   );
 }
 
+// ─── Smart Parse View (一句话智能拆解) ─────────────────────────────────────────
+const EXAMPLE_INPUTS = [
+  "挖了100米电缆沟，敷设200米YJV-3×120电缆，做了2个终端头",
+  "安装了3台配电箱，穿管500米DN32，接地极8根",
+  "今天放缆300米VV22-3×70，电缆中间接头1个，接地扁铁40×4共50米",
+];
+
+function SmartParseView({
+  worker,
+  checkInTime,
+  onViewHistory,
+  onParsed,
+  onSwitchMode,
+}: {
+  worker: Worker;
+  checkInTime: string;
+  onViewHistory: () => void;
+  onParsed: (items: ParsedBOQItem[], rawInput: string) => void;
+  onSwitchMode?: () => void;
+}) {
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleParse = async () => {
+    if (!input.trim()) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/worker/smart-parse", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ input: input.trim(), projectCode: worker.project }),
+      });
+      const data = await res.json();
+      if (!data.success) {
+        setError(data.error ?? "解析失败，请重试");
+        return;
+      }
+      if (data.result?.items?.length > 0) {
+        onParsed(data.result.items, input.trim());
+      } else {
+        setError("未能识别施工内容，请更详细描述");
+      }
+    } catch {
+      setError("网络错误，请重试");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-[100dvh] grid-bg flex flex-col">
+      {/* Header */}
+      <div
+        className="flex items-center justify-between px-5 py-4 border-b shrink-0"
+        style={{ borderColor: "var(--border)", background: "var(--surface)" }}
+      >
+        <div>
+          <div className="font-semibold text-white text-sm">{worker.name}</div>
+          <div className="text-xs mt-0.5" style={{ color: "var(--muted)" }}>
+            {worker.project} · 打卡 {checkInTime}
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          {onSwitchMode && (
+            <button
+              onClick={onSwitchMode}
+              className="text-xs px-2.5 py-1.5 rounded-lg transition-all active:scale-95"
+              style={{ color: "var(--accent)", background: "rgba(59,130,246,0.08)", border: "1px solid rgba(59,130,246,0.2)" }}
+            >
+              手动填写
+            </button>
+          )}
+          <button
+            onClick={onViewHistory}
+            className="text-xs px-2.5 py-1.5 rounded-lg transition-all"
+            style={{ color: "var(--accent)", background: "rgba(59,130,246,0.08)", border: "1px solid rgba(59,130,246,0.2)" }}
+          >
+            记录
+          </button>
+        </div>
+      </div>
+
+      {/* Body */}
+      <div className="flex-1 overflow-y-auto px-5 py-6">
+        <h2 className="text-xl font-bold text-white tracking-tight mb-1">智能拆解报量</h2>
+        <p className="text-sm mb-5" style={{ color: "var(--muted)" }}>
+          说一句话，AI 自动拆解为清单计价条目
+        </p>
+
+        {/* Input area */}
+        <div className="mb-4">
+          <textarea
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder="例：今天挖了100米电缆沟，敷设200米YJV-3×120电缆，做了2个终端头"
+            rows={3}
+            className="w-full rounded-2xl px-4 py-3.5 text-base outline-none resize-none"
+            style={{ background: "var(--surface)", border: "1px solid var(--border)", color: "var(--text)" }}
+          />
+        </div>
+
+        {/* Example hints */}
+        <div className="mb-6 space-y-1.5">
+          <div className="text-xs" style={{ color: "var(--muted)" }}>试试这样说：</div>
+          {EXAMPLE_INPUTS.map((ex) => (
+            <button
+              key={ex}
+              onClick={() => setInput(ex)}
+              className="block w-full text-left text-xs px-3 py-2 rounded-xl transition-all active:scale-[0.98]"
+              style={{
+                background: "rgba(139,92,246,0.06)",
+                border: "1px solid rgba(139,92,246,0.15)",
+                color: "rgba(139,92,246,0.85)",
+              }}
+            >
+              {ex}
+            </button>
+          ))}
+        </div>
+
+        {error && (
+          <div className="mb-4 px-3 py-2.5 rounded-xl text-xs" style={{ background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.25)", color: "#f87171" }}>
+            {error}
+          </div>
+        )}
+
+        <button
+          onClick={handleParse}
+          disabled={loading || !input.trim()}
+          className="w-full py-5 rounded-2xl text-base font-semibold text-white transition-all active:scale-95 disabled:opacity-50"
+          style={{
+            background: "linear-gradient(135deg, #8b5cf6, #7c3aed)",
+            boxShadow: "0 0 32px rgba(139,92,246,0.3)",
+          }}
+        >
+          {loading ? (
+            <span className="flex items-center justify-center gap-2">
+              <svg className="animate-spin w-5 h-5" viewBox="0 0 24 24" fill="none">
+                <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="32" strokeLinecap="round" />
+              </svg>
+              AI 拆解中...
+            </span>
+          ) : (
+            "智能拆解"
+          )}
+        </button>
+
+        {/* 海迈/晨曦接口提示 */}
+        <div className="mt-4 text-center text-xs" style={{ color: "rgba(139,92,246,0.4)" }}>
+          支持拆解为清单计价格式 · 预留海迈/晨曦对接
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Smart Parse Result View (拆解结果确认) ────────────────────────────────────
+function SmartResultView({
+  items: initialItems,
+  rawInput,
+  onConfirm,
+  onBack,
+}: {
+  items: ParsedBOQItem[];
+  rawInput: string;
+  onConfirm: (items: ParsedBOQItem[], photoUrls: string[]) => void;
+  onBack: () => void;
+}) {
+  const [items, setItems] = useState<ParsedBOQItem[]>(initialItems);
+  const [photoUrls, setPhotoUrls] = useState<string[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+
+  const handlePhotoUpload = async (files: FileList) => {
+    setUploading(true);
+    setUploadError(null);
+    try {
+      const uploaded: string[] = [];
+      for (const file of Array.from(files)) {
+        const fd = new FormData();
+        fd.append("file", file);
+        const res = await fetch("/api/upload", { method: "POST", body: fd });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          setUploadError(err.error ?? "照片上传失败");
+          return;
+        }
+        const data = await res.json();
+        if (data.path) uploaded.push(data.path);
+      }
+      setPhotoUrls((prev) => [...prev, ...uploaded]);
+    } catch {
+      setUploadError("照片上传失败，请检查网络");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const removePhoto = (idx: number) => {
+    setPhotoUrls((prev) => prev.filter((_, i) => i !== idx));
+  };
+
+  const updateItem = (idx: number, field: keyof ParsedBOQItem, value: string | number | null) => {
+    setItems((prev) => {
+      const next = [...prev];
+      next[idx] = { ...next[idx], [field]: value };
+      // 数量或单价变化时自动重算合价
+      if (field === "quantity" || field === "unitPrice") {
+        const qty = field === "quantity" ? (value as number) : next[idx].quantity;
+        const price = field === "unitPrice" ? (value as number) : next[idx].unitPrice;
+        next[idx].totalPrice = qty > 0 && price !== null ? Math.round(qty * price * 100) / 100 : null;
+      }
+      return next;
+    });
+  };
+
+  const totalPrice = items.reduce((sum, i) => sum + (i.totalPrice ?? 0), 0);
+
+  return (
+    <div className="min-h-[100dvh] flex flex-col" style={{ background: "var(--bg)" }}>
+      {/* Header */}
+      <div
+        className="flex items-center justify-between px-5 py-4 border-b shrink-0"
+        style={{ borderColor: "var(--border)", background: "var(--surface)" }}
+      >
+        <button onClick={onBack} className="flex items-center gap-2 text-sm" style={{ color: "var(--muted)" }}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M19 12H5M12 5l-7 7 7 7" />
+          </svg>
+          返回
+        </button>
+        <div className="text-sm font-semibold text-white">拆解结果</div>
+        <div className="w-16" />
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-5 py-4">
+        {/* 原始输入 */}
+        <div
+          className="mb-4 px-4 py-3 rounded-xl text-xs"
+          style={{ background: "rgba(139,92,246,0.06)", border: "1px solid rgba(139,92,246,0.15)", color: "rgba(139,92,246,0.8)" }}
+        >
+          原始描述：{rawInput}
+        </div>
+
+        {/* 拆解条目列表 */}
+        <div className="space-y-3 mb-6">
+          {items.map((item, idx) => (
+            <div key={idx} className="rounded-2xl p-4" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+              <div className="flex items-start justify-between mb-3">
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span
+                      className="text-xs px-1.5 py-0.5 rounded font-mono"
+                      style={{ background: "rgba(139,92,246,0.1)", color: "rgba(139,92,246,0.7)" }}
+                    >
+                      {item.code || "—"}
+                    </span>
+                    <span className="text-sm font-semibold text-white">{item.name}</span>
+                  </div>
+                  {item.characteristics && (
+                    <div className="text-xs mb-2" style={{ color: "var(--muted)" }}>{item.characteristics}</div>
+                  )}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2">
+                <div>
+                  <div className="text-xs mb-1" style={{ color: "var(--muted)" }}>数量</div>
+                  <input
+                    type="number"
+                    value={item.quantity || ""}
+                    onChange={(e) => updateItem(idx, "quantity", parseFloat(e.target.value) || 0)}
+                    className="w-full rounded-lg px-2.5 py-2 text-sm outline-none"
+                    style={{ background: "var(--bg)", border: "1px solid var(--border)", color: "var(--text)" }}
+                  />
+                </div>
+                <div>
+                  <div className="text-xs mb-1" style={{ color: "var(--muted)" }}>单位</div>
+                  <input
+                    value={item.unit}
+                    onChange={(e) => updateItem(idx, "unit", e.target.value)}
+                    className="w-full rounded-lg px-2.5 py-2 text-sm outline-none"
+                    style={{ background: "var(--bg)", border: "1px solid var(--border)", color: "var(--text)" }}
+                  />
+                </div>
+                <div>
+                  <div className="text-xs mb-1" style={{ color: "var(--muted)" }}>单价</div>
+                  <input
+                    type="number"
+                    value={item.unitPrice ?? ""}
+                    onChange={(e) => updateItem(idx, "unitPrice", e.target.value ? parseFloat(e.target.value) : null)}
+                    placeholder="—"
+                    className="w-full rounded-lg px-2.5 py-2 text-sm outline-none"
+                    style={{ background: "var(--bg)", border: "1px solid var(--border)", color: "var(--text)" }}
+                  />
+                </div>
+              </div>
+
+              {item.totalPrice !== null && (
+                <div className="mt-2 text-right text-xs" style={{ color: "var(--green)" }}>
+                  合价：¥{item.totalPrice.toLocaleString()}
+                </div>
+              )}
+
+              {/* 海迈/晨曦编码提示 (预留) */}
+              {(item.haimaiCode || item.chenxiCode) && (
+                <div className="mt-2 flex gap-2">
+                  {item.haimaiCode && (
+                    <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: "rgba(59,130,246,0.08)", color: "var(--accent)" }}>
+                      海迈: {item.haimaiCode}
+                    </span>
+                  )}
+                  {item.chenxiCode && (
+                    <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: "rgba(245,158,11,0.08)", color: "var(--amber)" }}>
+                      晨曦: {item.chenxiCode}
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+
+        {/* 合计 */}
+        {totalPrice > 0 && (
+          <div
+            className="mb-4 px-4 py-3 rounded-xl flex items-center justify-between"
+            style={{ background: "rgba(16,185,129,0.06)", border: "1px solid rgba(16,185,129,0.2)" }}
+          >
+            <span className="text-sm" style={{ color: "var(--muted)" }}>合计</span>
+            <span className="text-lg font-bold" style={{ color: "var(--green)" }}>¥{totalPrice.toLocaleString()}</span>
+          </div>
+        )}
+
+        {/* 照片上传区域 */}
+        <div className="mb-5 space-y-2">
+          <label
+            className="flex items-center justify-center gap-2 py-4 rounded-xl cursor-pointer text-sm transition-all"
+            style={{
+              border: photoUrls.length > 0 ? "1px solid rgba(16,185,129,0.35)" : "1px dashed rgba(139,92,246,0.3)",
+              color: photoUrls.length > 0 ? "var(--green)" : "var(--muted)",
+              background: photoUrls.length > 0 ? "rgba(16,185,129,0.06)" : "transparent",
+            }}
+          >
+            {uploading ? (
+              <span className="animate-pulse">上传中...</span>
+            ) : photoUrls.length > 0 ? (
+              <>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="20 6 9 17 4 12" /></svg>
+                已上传 {photoUrls.length} 张照片
+                <span className="ml-1 text-xs px-1.5 py-0.5 rounded-full font-mono" style={{ background: "rgba(16,185,129,0.15)", color: "var(--green)" }}>
+                  +继续添加
+                </span>
+              </>
+            ) : (
+              <>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+                  <circle cx="12" cy="13" r="4" />
+                </svg>
+                拍照存证（选填，可多张，用于复核）
+              </>
+            )}
+            <input
+              type="file"
+              accept="image/*"
+              multiple
+              capture="environment"
+              className="hidden"
+              onChange={(e) => { if (e.target.files?.length) handlePhotoUpload(e.target.files); }}
+            />
+          </label>
+
+          {/* 已上传照片缩略图 */}
+          {photoUrls.length > 0 && (
+            <div className="flex gap-2 flex-wrap">
+              {photoUrls.map((url, idx) => (
+                <div key={idx} className="relative w-16 h-16 rounded-lg overflow-hidden" style={{ border: "1px solid var(--border)" }}>
+                  <img src={url} alt={`照片${idx + 1}`} className="w-full h-full object-cover" />
+                  <button
+                    onClick={() => removePhoto(idx)}
+                    className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full flex items-center justify-center text-white text-xs"
+                    style={{ background: "rgba(239,68,68,0.8)" }}
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+              <button
+                onClick={() => setPhotoUrls([])}
+                className="text-xs self-center ml-1"
+                style={{ color: "var(--muted)" }}
+              >
+                清除全部
+              </button>
+            </div>
+          )}
+
+          {uploadError && (
+            <div className="px-3 py-2 rounded-xl text-xs" style={{ background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.2)", color: "#f87171" }}>
+              {uploadError}
+            </div>
+          )}
+        </div>
+
+        <button
+          onClick={() => onConfirm(items, photoUrls)}
+          className="w-full py-5 rounded-2xl text-base font-semibold text-white transition-all active:scale-95"
+          style={{
+            background: "linear-gradient(135deg, #8b5cf6, #7c3aed)",
+            boxShadow: "0 0 32px rgba(139,92,246,0.3)",
+          }}
+        >
+          确认提交 ({items.length} 条{photoUrls.length > 0 ? ` · ${photoUrls.length} 张照片` : ""})
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ─── Manual Report Form ───────────────────────────────────────────────────────
 const TASK_PRESETS = ["穿线管", "接线盒", "配电箱", "布线", "接线", "桥架", "开关插座", "灯具安装"];
 
@@ -642,11 +1079,13 @@ function ManualReportForm({
   checkInTime,
   onSubmit,
   onViewHistory,
+  onSwitchMode,
 }: {
   worker: Worker;
   checkInTime: string;
   onSubmit: (report: Report) => void;
   onViewHistory: () => void;
+  onSwitchMode?: () => void;
 }) {
   const [task, setTask] = useState("");
   const [spec, setSpec] = useState("");
@@ -683,13 +1122,24 @@ function ManualReportForm({
             {worker.project} · 打卡 {checkInTime}
           </div>
         </div>
-        <button
-          onClick={onViewHistory}
-          className="text-xs px-2.5 py-1.5 rounded-lg transition-all"
-          style={{ color: "var(--accent)", background: "rgba(59,130,246,0.08)", border: "1px solid rgba(59,130,246,0.2)" }}
-        >
-          记录
-        </button>
+        <div className="flex items-center gap-2">
+          {onSwitchMode && (
+            <button
+              onClick={onSwitchMode}
+              className="text-xs px-2.5 py-1.5 rounded-lg transition-all active:scale-95"
+              style={{ color: "#a78bfa", background: "rgba(139,92,246,0.08)", border: "1px solid rgba(139,92,246,0.2)" }}
+            >
+              智能拆解
+            </button>
+          )}
+          <button
+            onClick={onViewHistory}
+            className="text-xs px-2.5 py-1.5 rounded-lg transition-all"
+            style={{ color: "var(--accent)", background: "rgba(59,130,246,0.08)", border: "1px solid rgba(59,130,246,0.2)" }}
+          >
+            记录
+          </button>
+        </div>
       </div>
 
       {/* Form body */}
@@ -878,6 +1328,7 @@ function DoneScreen({
 // ─── Main Worker Page ─────────────────────────────────────────────────────────
 export default function WorkerPage() {
   const [phase, setPhase] = useState<Phase>("login");
+  const [formMode, setFormMode] = useState<FormMode>("manual");
   const [worker, setWorker] = useState<Worker | null>(null);
   const [report, setReport] = useState<Report | null>(null);
   const [photoUrls, setPhotoUrls] = useState<string[]>([]);
@@ -885,6 +1336,10 @@ export default function WorkerPage() {
   const [checkInTime, setCheckInTime] = useState("");
   const [showHistory, setShowHistory] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  // 智能拆解相关状态
+  const [parsedItems, setParsedItems] = useState<ParsedBOQItem[]>([]);
+  const [parsedRawInput, setParsedRawInput] = useState("");
+  const [batchSubmitting, setBatchSubmitting] = useState(false);
 
   // Restore identity from localStorage + verify worker still exists in DB (RH1)
   useEffect(() => {
@@ -895,7 +1350,11 @@ export default function WorkerPage() {
       fetch(`/api/workers/${encodeURIComponent(w.id)}`)
         .then((r) => {
           if (r.ok) return r.json().then((fresh: Worker) => { setWorker(fresh); });
-          else localStorage.removeItem("pl_worker"); // worker deleted — force re-login
+          else {
+            // 404 = worker deleted → force re-login; 500+ = server error → allow cached
+            if (r.status === 404) localStorage.removeItem("pl_worker");
+            else setWorker(w);
+          }
         })
         .catch(() => setWorker(w)); // network error — allow cached identity
     } catch { /* ignore */ }
@@ -974,7 +1433,54 @@ export default function WorkerPage() {
   const resetToForm = () => {
     setReport(null);
     setPhotoUrls([]);
+    setParsedItems([]);
+    setParsedRawInput("");
     setPhase("form");
+  };
+
+  // 智能拆解回调
+  const handleSmartParsed = (items: ParsedBOQItem[], rawInput: string) => {
+    setParsedItems(items);
+    setParsedRawInput(rawInput);
+    setPhase("smart-result");
+  };
+
+  // 批量提交拆解结果
+  const batchSubmitReports = async (items: ParsedBOQItem[], photoUrls: string[] = []) => {
+    if (!worker) return;
+    setBatchSubmitting(true);
+    setSubmitError(null);
+    try {
+      const results = await Promise.allSettled(
+        items.map((item, idx) =>
+          fetch("/api/reports", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              workerId: worker.id,
+              workerName: worker.name,
+              project: worker.project,
+              task: item.name,
+              spec: item.characteristics || item.unit,
+              qty: `${item.quantity}${item.unit}`,
+              photoUrls: idx === 0 ? photoUrls : [], // 照片挂在第一条报量上，关联整批
+              priceItemId: item.priceItemId,
+              unitPrice: item.unitPrice,
+            }),
+          })
+        )
+      );
+      const failedCount = results.filter((r) => r.status === "rejected" || (r.status === "fulfilled" && !r.value.ok)).length;
+      if (failedCount === items.length) {
+        setSubmitError("全部提交失败，请重试");
+        return;
+      }
+      setPhase("done");
+    } catch {
+      setSubmitError("批量提交失败，请检查网络");
+    } finally {
+      setBatchSubmitting(false);
+    }
   };
 
   // History overlay
@@ -996,12 +1502,32 @@ export default function WorkerPage() {
   }
 
   if (phase === "form") {
-    return (
+    return formMode === "manual" ? (
       <ManualReportForm
         worker={worker}
         checkInTime={checkInTime}
         onSubmit={handleFormSubmit}
         onViewHistory={() => setShowHistory(true)}
+        onSwitchMode={() => setFormMode("smart")}
+      />
+    ) : (
+      <SmartParseView
+        worker={worker}
+        checkInTime={checkInTime}
+        onViewHistory={() => setShowHistory(true)}
+        onParsed={handleSmartParsed}
+        onSwitchMode={() => setFormMode("manual")}
+      />
+    );
+  }
+
+  if (phase === "smart-result") {
+    return (
+      <SmartResultView
+        items={parsedItems}
+        rawInput={parsedRawInput}
+        onBack={() => setPhase("form")}
+        onConfirm={batchSubmitReports}
       />
     );
   }

@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { rateLimit } from "@/lib/rate-limit";
+import { chatCompletion } from "@/lib/llm";
 
 const SYSTEM_PROMPT = `你是 PowerLink 工地报量助手，负责引导工人快速完成一条工程量上报。
 
@@ -28,32 +29,22 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const messages: Array<{ role: string; content: string }> = body.messages ?? [];
 
-    if (!process.env.VOLC_API_KEY) {
-      return Response.json({ content: "AI服务未配置" }, { status: 500 });
-    }
-
-    const res = await fetch(`${process.env.VOLC_BASE_URL}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${process.env.VOLC_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: process.env.VOLC_MODEL,
-        messages: [{ role: "system", content: SYSTEM_PROMPT }, ...messages],
-        max_tokens: 200,
-        temperature: 0.7,
-      }),
-    });
-
-    if (!res.ok) {
-      const err = await res.text();
-      console.error("Volc API error:", err);
+    let content: string;
+    try {
+      content = await chatCompletion(
+        [
+          { role: "system", content: SYSTEM_PROMPT },
+          ...messages.map((m) => ({
+            role: (m.role === "user" ? "user" : "assistant") as "user" | "assistant",
+            content: m.content,
+          })),
+        ],
+        { maxTokens: 200, temperature: 0.7 },
+      );
+    } catch {
       return Response.json({ content: "网络不好，再说一遍？" }, { status: 200 });
     }
 
-    const data = await res.json();
-    const content: string = data.choices?.[0]?.message?.content ?? "好的，继续。";
     return Response.json({ content });
   } catch (e) {
     console.error("worker/chat error:", e);
