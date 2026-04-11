@@ -40,12 +40,35 @@ const PRESET_MODELS = {
 
 type FeatureConfig = { apiKey: string; model: string; baseUrl: string };
 
+type PushConfig = {
+  push_platform: string;
+  push_webhook_url: string;
+  push_enabled: string;
+  push_daily_time: string;
+  push_weekly_day: string;
+  push_report_types: string;
+};
+
 export default function SettingsPage() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [features, setFeatures] = useState<Features | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
+
+  // Push config
+  const [pushConfig, setPushConfig] = useState<PushConfig>({
+    push_platform: "serverchan",
+    push_webhook_url: "",
+    push_enabled: "off",
+    push_daily_time: "18:00",
+    push_weekly_day: "5",
+    push_report_types: '["daily","weekly"]',
+  });
+  const [pushTestResult, setPushTestResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [pushTesting, setPushTesting] = useState(false);
+  const [reportPreview, setReportPreview] = useState<string | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
 
   // Active tab
   const [activeTab, setActiveTab] = useState<string>("default");
@@ -83,6 +106,11 @@ export default function SettingsPage() {
           photo: fc.photo ? { apiKey: fc.photo.apiKey || "", model: fc.photo.model || "", baseUrl: fc.photo.baseUrl || "" } : { apiKey: "", model: "", baseUrl: "" },
           summary: fc.summary ? { apiKey: fc.summary.apiKey || "", model: fc.summary.model || "", baseUrl: fc.summary.baseUrl || "" } : { apiKey: "", model: "", baseUrl: "" },
         });
+
+        // Push config
+        if (data.pushConfig) {
+          setPushConfig((prev) => ({ ...prev, ...data.pushConfig }));
+        }
       }
     } catch {} finally { setLoading(false); }
   }, []);
@@ -94,7 +122,7 @@ export default function SettingsPage() {
     setSaveMsg(null);
     try {
       // Build all settings: default + per-feature overrides
-      const body: Record<string, string> = {};
+      const body: Record<string, string | object> = {};
       const dc = featureConfigs.default;
       body.llm_api_key = dc.apiKey;
       body.llm_model = dc.model;
@@ -114,6 +142,9 @@ export default function SettingsPage() {
       body.features = JSON.stringify(
         features ? Object.fromEntries(Object.entries(features).map(([k, v]) => [k, v.enabled])) : {}
       );
+
+      // Push config
+      body.push = { ...pushConfig };
 
       const res = await fetch("/api/settings", {
         method: "PUT",
@@ -303,6 +334,175 @@ export default function SettingsPage() {
               </button>
             </div>
           ))}
+        </div>
+      </div>
+
+      {/* Push Config */}
+      <div className="mt-10">
+        <h2 className="text-lg font-bold text-white mb-1">定时推送</h2>
+        <p className="text-xs mb-4" style={{ color: "var(--muted)" }}>配置施工日报/周报自动推送到微信或企业微信</p>
+
+        <div className="space-y-4">
+          {/* Enable toggle */}
+          <div className="p-4 rounded-xl flex items-center justify-between"
+            style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+            <div>
+              <div className="text-sm font-medium text-white">启用定时推送</div>
+              <div className="text-[11px] mt-0.5" style={{ color: "var(--muted)" }}>开启后，系统将按计划自动推送施工报告</div>
+            </div>
+            <button onClick={() => setPushConfig({ ...pushConfig, push_enabled: pushConfig.push_enabled === "on" ? "off" : "on" })}
+              className="relative w-11 h-6 rounded-full transition-all"
+              style={{ background: pushConfig.push_enabled === "on" ? "var(--accent)" : "var(--border)" }}>
+              <div className="absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all"
+                style={{ left: pushConfig.push_enabled === "on" ? "22px" : "2px" }} />
+            </button>
+          </div>
+
+          {/* Platform */}
+          <div className="p-4 rounded-xl" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+            <div className="text-xs mb-2" style={{ color: "var(--muted)" }}>推送平台</div>
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                { key: "serverchan", label: "Server酱", desc: "推送到微信，简单方便" },
+                { key: "wechat", label: "企业微信", desc: "群机器人 Webhook" },
+              ].map((p) => (
+                <button key={p.key}
+                  onClick={() => setPushConfig({ ...pushConfig, push_platform: p.key })}
+                  className="px-4 py-3 rounded-lg text-left transition-all"
+                  style={{
+                    background: pushConfig.push_platform === p.key ? "rgba(59,130,246,0.15)" : "transparent",
+                    border: `1px solid ${pushConfig.push_platform === p.key ? "rgba(59,130,246,0.4)" : "var(--border)"}`,
+                    color: pushConfig.push_platform === p.key ? "white" : "var(--muted)",
+                  }}>
+                  <div className="text-sm font-medium">{p.label}</div>
+                  <div className="text-[10px] mt-0.5 opacity-60">{p.desc}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Webhook URL */}
+          <div className="p-4 rounded-xl" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+            <div className="text-xs mb-1.5" style={{ color: "var(--muted)" }}>
+              {pushConfig.push_platform === "serverchan" ? "Server酱 SendKey URL" : "企业微信 Webhook URL"}
+            </div>
+            <input type="text" value={pushConfig.push_webhook_url}
+              onChange={(e) => setPushConfig({ ...pushConfig, push_webhook_url: e.target.value })}
+              placeholder={pushConfig.push_platform === "serverchan" ? "https://sct.ftqq.com/xxxxx.send" : "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx"}
+              className="w-full px-4 py-2.5 rounded-lg text-sm font-mono"
+              style={{ background: "rgba(0,0,0,0.3)", border: "1px solid var(--border)", color: "white" }} />
+            <div className="text-[10px] mt-1" style={{ color: "rgba(148,163,184,0.5)" }}>
+              {pushConfig.push_platform === "serverchan"
+                ? "在 sct.ftqq.com 注册获取 SendKey"
+                : "在企业微信群 → 添加群机器人 → 获取 Webhook 地址"}
+            </div>
+          </div>
+
+          {/* Schedule config */}
+          <div className="p-4 rounded-xl" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+            <div className="text-xs mb-2" style={{ color: "var(--muted)" }}>推送计划</div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <div className="text-[10px] mb-1" style={{ color: "var(--muted)" }}>日报推送时间</div>
+                <input type="time" value={pushConfig.push_daily_time}
+                  onChange={(e) => setPushConfig({ ...pushConfig, push_daily_time: e.target.value })}
+                  className="w-full px-3 py-2 rounded-lg text-sm"
+                  style={{ background: "rgba(0,0,0,0.3)", border: "1px solid var(--border)", color: "white" }} />
+              </div>
+              <div>
+                <div className="text-[10px] mb-1" style={{ color: "var(--muted)" }}>周报推送日</div>
+                <select value={pushConfig.push_weekly_day}
+                  onChange={(e) => setPushConfig({ ...pushConfig, push_weekly_day: e.target.value })}
+                  className="w-full px-3 py-2 rounded-lg text-sm"
+                  style={{ background: "rgba(0,0,0,0.3)", border: "1px solid var(--border)", color: "white" }}>
+                  {["周日","周一","周二","周三","周四","周五","周六"].map((d, i) => (
+                    <option key={i} value={String(i)} style={{ background: "#1e293b" }}>{d}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </div>
+
+          {/* Report types */}
+          <div className="p-4 rounded-xl" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+            <div className="text-xs mb-2" style={{ color: "var(--muted)" }}>报告类型</div>
+            <div className="flex gap-2">
+              {([
+                { key: "daily", label: "施工日报", desc: "出勤+报量+签证" },
+                { key: "weekly", label: "周报汇总", desc: "产值+签证+出勤统计" },
+                { key: "alert", label: "异常预警", desc: "库存+积压+年检+锁定" },
+              ] as const).map((rt) => {
+                const selected = pushConfig.push_report_types.includes(rt.key);
+                return (
+                  <button key={rt.key}
+                    onClick={() => {
+                      const types: string[] = JSON.parse(pushConfig.push_report_types || "[]");
+                      const next = selected ? types.filter((t) => t !== rt.key) : [...types, rt.key];
+                      setPushConfig({ ...pushConfig, push_report_types: JSON.stringify(next) });
+                    }}
+                    className="flex-1 px-3 py-2.5 rounded-lg text-left transition-all"
+                    style={{
+                      background: selected ? "rgba(59,130,246,0.15)" : "transparent",
+                      border: `1px solid ${selected ? "rgba(59,130,246,0.4)" : "var(--border)"}`,
+                      color: selected ? "white" : "var(--muted)",
+                    }}>
+                    <div className="text-xs font-medium">{rt.label}</div>
+                    <div className="text-[9px] mt-0.5 opacity-60">{rt.desc}</div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Push actions */}
+          <div className="flex items-center gap-3">
+            <button onClick={async () => {
+              setPushTesting(true);
+              setPushTestResult(null);
+              try {
+                await handleSave();
+                const res = await fetch("/api/cron/report?type=daily&push=1&secret=pl_admin_secret_2026", { method: "POST" });
+                const data = await res.json();
+                setPushTestResult({ ok: data.pushed, message: data.pushMessage || data.error || "未知结果" });
+              } catch {
+                setPushTestResult({ ok: false, message: "网络错误" });
+              }
+              setPushTesting(false);
+            }} disabled={pushTesting}
+              className="px-5 py-2.5 rounded-lg text-sm"
+              style={{ background: "transparent", border: "1px solid var(--border)", color: pushTesting ? "var(--muted)" : "var(--accent)" }}>
+              {pushTesting ? "测试中..." : "测试推送"}
+            </button>
+            <button onClick={async () => {
+              setPreviewLoading(true);
+              setReportPreview(null);
+              try {
+                const res = await fetch("/api/cron/report?type=daily", { method: "POST" });
+                const data = await res.json();
+                setReportPreview(data.content || data.error || "生成失败");
+              } catch {
+                setReportPreview("网络错误");
+              }
+              setPreviewLoading(false);
+            }} disabled={previewLoading}
+              className="px-5 py-2.5 rounded-lg text-sm"
+              style={{ background: "transparent", border: "1px solid var(--border)", color: previewLoading ? "var(--muted)" : "var(--muted)" }}>
+              {previewLoading ? "生成中..." : "预览日报"}
+            </button>
+            {pushTestResult && (
+              <span className="text-xs" style={{ color: pushTestResult.ok ? "#34d399" : "#f87171" }}>
+                {pushTestResult.message}
+              </span>
+            )}
+          </div>
+
+          {/* Report preview */}
+          {reportPreview && (
+            <div className="p-4 rounded-xl text-xs whitespace-pre-wrap font-mono leading-relaxed"
+              style={{ background: "rgba(0,0,0,0.3)", border: "1px solid var(--border)", color: "var(--muted)", maxHeight: "300px", overflow: "auto" }}>
+              {reportPreview}
+            </div>
+          )}
         </div>
       </div>
     </div>

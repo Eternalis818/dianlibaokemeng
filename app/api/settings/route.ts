@@ -11,6 +11,9 @@ const FEATURE_KEYS = ["feature_photo_review"] as const;
 const FEATURE_MODELS = ["photo", "summary"] as const;
 type FeatureModel = (typeof FEATURE_MODELS)[number];
 
+// Push config keys
+const PUSH_KEYS = ["push_platform", "push_webhook_url", "push_enabled", "push_daily_time", "push_weekly_day", "push_report_types"] as const;
+
 const KEY_TO_LABEL: Record<LLMKey, string> = {
   llm_api_key: "API Key",
   llm_model: "模型名称",
@@ -26,6 +29,7 @@ const ALL_KEYS = [
   ...LLM_KEYS,
   ...FEATURE_KEYS,
   ...FEATURE_MODELS.flatMap((f) => [`${f}_api_key`, `${f}_model`, `${f}_base_url`]),
+  ...PUSH_KEYS,
 ];
 
 function defaults(): Record<LLMKey, string> {
@@ -83,7 +87,18 @@ export async function GET() {
       };
     }
 
-    return Response.json({ success: true, settings, features, featureConfigs });
+    // Push config
+    const pushConfig: Record<string, string> = {};
+    for (const key of PUSH_KEYS) {
+      pushConfig[key] = dbMap[key] || "";
+    }
+    // Mask webhook URL
+    if (pushConfig.push_webhook_url && pushConfig.push_webhook_url.length > 20) {
+      pushConfig.push_webhook_url =
+        pushConfig.push_webhook_url.slice(0, 10) + "***" + pushConfig.push_webhook_url.slice(-8);
+    }
+
+    return Response.json({ success: true, settings, features, featureConfigs, pushConfig });
   } catch (e) {
     return Response.json({ error: e instanceof Error ? e.message : "unknown" }, { status: 500 });
   }
@@ -133,6 +148,24 @@ export async function PUT(req: NextRequest) {
         await prisma.$executeRawUnsafe(
           `INSERT INTO "Settings" ("key", "value", "updatedAt") VALUES ('${key}', '${enabled ? "on" : "off"}', NOW()) ON CONFLICT ("key") DO UPDATE SET "value" = EXCLUDED."value", "updatedAt" = EXCLUDED."updatedAt"`
         );
+      }
+    }
+
+    // Push config
+    const pushData = body.push;
+    if (pushData) {
+      for (const [key, value] of Object.entries(pushData as Record<string, string>)) {
+        if (!key.startsWith("push_")) continue;
+        // Skip masked webhook URLs
+        if (key === "push_webhook_url" && value.includes("***")) continue;
+        if (value === "" || value === undefined) {
+          await prisma.$executeRawUnsafe(`DELETE FROM "Settings" WHERE "key" = '${key}'`);
+        } else {
+          const safeVal = String(value).replace(/'/g, "''");
+          await prisma.$executeRawUnsafe(
+            `INSERT INTO "Settings" ("key", "value", "updatedAt") VALUES ('${key}', '${safeVal}', NOW()) ON CONFLICT ("key") DO UPDATE SET "value" = EXCLUDED."value", "updatedAt" = EXCLUDED."updatedAt"`
+          );
+        }
       }
     }
 

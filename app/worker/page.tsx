@@ -456,15 +456,28 @@ function LoginScreen({ onLogin }: { onLogin: (w: Worker) => void }) {
   );
 }
 
-// ─── Check-In Screen ──────────────────────────────────────────────────────────
+// ─── Check-In Screen (Enhanced with Dashboard Data) ───────────────────────────
+type DashboardData = {
+  points: { rewardPoints: number; penaltyPoints: number; isLocked: boolean };
+  streak: { days: number; nextThreshold: number; nextReward: number };
+  monthStats: {
+    attendance: number;
+    totalValue: number;
+    verifiedValue: number;
+    photoCount: number;
+    reportStats: { task: string; totalReports: number; totalValue: number; verifiedValue: number }[];
+    monthEarnings: number | null;
+  };
+  recentRewards: { id: number; points: number; reason: string; createdAt: string }[];
+  recentPenalties: { id: number; points: number; reason: string; categoryName: string; createdAt: string }[];
+};
+
 type TodayStatus = {
   checkedIn: boolean;
   checkinTime?: string;
   reportCount: number;
   pendingCount: number;
   approvedCount: number;
-  monthAttendance: number;
-  monthEarnings: number | null;
 };
 
 function CheckInScreen({
@@ -480,14 +493,16 @@ function CheckInScreen({
 }) {
   const [checking, setChecking] = useState(false);
   const [todayStatus, setTodayStatus] = useState<TodayStatus | null>(null);
+  const [dash, setDash] = useState<DashboardData | null>(null);
+  const [leaderboard, setLeaderboard] = useState<Record<string, { rank: number; name: string; value: string }[]> | null>(null);
+  const [showLeaderboard, setShowLeaderboard] = useState(false);
+  const [lbTab, setLbTab] = useState("value");
   const [error, setError] = useState<string | null>(null);
 
+  // 加载今日状态
   useEffect(() => {
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
-    const monthStart = new Date();
-    monthStart.setDate(1);
-    monthStart.setHours(0, 0, 0, 0);
     Promise.all([
       fetch("/api/checkin").then((r) => r.json()).catch(() => []),
       fetch(`/api/reports?workerId=${encodeURIComponent(worker.id)}`).then((r) => r.json()).catch(() => []),
@@ -498,21 +513,10 @@ function CheckInScreen({
               ci.workerId === worker.id && new Date(ci.createdAt) >= todayStart
           )
         : null;
-      const myMonthCheckins = Array.isArray(checkins)
-        ? checkins.filter(
-            (ci: { workerId: string; createdAt: string }) =>
-              ci.workerId === worker.id && new Date(ci.createdAt) >= monthStart
-          )
-        : [];
       const todayReports = Array.isArray(reports)
         ? reports.filter((r: { createdAt: string }) => new Date(r.createdAt) >= todayStart)
         : [];
       const d = myCheckin ? new Date(myCheckin.createdAt) : null;
-      const monthAttendance = myMonthCheckins.length;
-      const monthEarnings =
-        worker.wageType === "daily" && worker.wageRate
-          ? monthAttendance * worker.wageRate
-          : null;
       setTodayStatus({
         checkedIn: !!myCheckin,
         checkinTime: d
@@ -521,17 +525,30 @@ function CheckInScreen({
         reportCount: todayReports.length,
         pendingCount: todayReports.filter((r: { status: string }) => r.status === "pending").length,
         approvedCount: todayReports.filter((r: { status: string }) => r.status === "approved").length,
-        monthAttendance,
-        monthEarnings,
       });
     });
-  }, [worker.id, worker.wageType, worker.wageRate]);
+  }, [worker.id]);
+
+  // 加载 Dashboard 数据
+  useEffect(() => {
+    fetch("/api/worker/dashboard", { headers: { "x-worker-id": worker.id } })
+      .then((r) => r.json())
+      .then((data) => { if (data.points) setDash(data as DashboardData); })
+      .catch(() => {});
+  }, [worker.id]);
+
+  // 延迟加载排行榜（非关键数据）
+  useEffect(() => {
+    fetch(`/api/worker/leaderboard?project=${encodeURIComponent(worker.project)}`)
+      .then((r) => r.json())
+      .then((data) => { if (data.leaderboards) setLeaderboard(data.leaderboards); })
+      .catch(() => {});
+  }, [worker.project]);
 
   const handleCheckIn = async () => {
     setChecking(true);
     setError(null);
     try {
-      // 尝试获取 GPS（不阻塞，超时 5s 降级为手动打卡）
       let gpsLat: number | null = null;
       let gpsLng: number | null = null;
       try {
@@ -540,7 +557,7 @@ function CheckInScreen({
         });
         gpsLat = pos.coords.latitude;
         gpsLng = pos.coords.longitude;
-      } catch { /* GPS 不可用，继续手动打卡 */ }
+      } catch { /* GPS 不可用 */ }
 
       const res = await fetch("/api/checkin", {
         method: "POST",
@@ -567,91 +584,290 @@ function CheckInScreen({
     }
   };
 
-  return (
-    <div className="min-h-[100dvh] grid-bg flex flex-col items-center justify-center gap-8 px-6">
-      <div className="text-center">
-        <div
-          className="w-20 h-20 rounded-3xl flex items-center justify-center mx-auto mb-6"
-          style={{ background: "rgba(16,185,129,0.12)", border: "1px solid rgba(16,185,129,0.3)" }}
-        >
-          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="var(--green)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
-            <circle cx="12" cy="10" r="3" />
-          </svg>
-        </div>
-        <h2 className="text-2xl font-bold text-white tracking-tight">{worker.name}</h2>
-        <p className="text-sm mt-1" style={{ color: "var(--muted)" }}>{worker.project} · {worker.id}</p>
-      </div>
+  // 排行榜标签定义
+  const LB_TABS = [
+    { key: "value", label: "产值", unit: "¥", color: "#10b981" },
+    { key: "chickenLeg", label: "鸡腿", unit: "🍗", color: "#f59e0b" },
+    { key: "reportCount", label: "工程量", unit: "条", color: "#3b82f6" },
+    { key: "photo", label: "照片", unit: "张", color: "#8b5cf6" },
+    { key: "attendance", label: "出勤", unit: "天", color: "#06b6d4" },
+    { key: "safety", label: "安全", unit: "扣分", color: "#ef4444" },
+  ];
 
-      {todayStatus && (
-        <div
-          className="w-full max-w-xs rounded-2xl px-4 py-3.5"
-          style={
-            todayStatus.checkedIn
-              ? { background: "rgba(16,185,129,0.07)", border: "1px solid rgba(16,185,129,0.22)" }
-              : { background: "rgba(59,130,246,0.06)", border: "1px solid rgba(59,130,246,0.18)" }
-          }
-        >
-          <div className="flex items-center gap-2 mb-2">
-            <span className="w-1.5 h-1.5 rounded-full" style={{ background: todayStatus.checkedIn ? "var(--green)" : "var(--muted)" }} />
-            <span className="text-xs font-medium" style={{ color: todayStatus.checkedIn ? "var(--green)" : "var(--muted)" }}>
-              {todayStatus.checkedIn ? `今天 ${todayStatus.checkinTime} 已打卡` : "今天尚未打卡"}
-            </span>
+  return (
+    <div className="min-h-[100dvh] grid-bg flex flex-col">
+      {/* ── Header ── */}
+      <div className="px-5 pt-6 pb-4" style={{ background: "linear-gradient(180deg, rgba(16,185,129,0.08) 0%, transparent 100%)" }}>
+        <div className="flex items-center gap-3">
+          <div className="w-12 h-12 rounded-2xl flex items-center justify-center"
+            style={{ background: "rgba(16,185,129,0.15)", border: "1px solid rgba(16,185,129,0.3)" }}>
+            <span className="text-lg font-bold" style={{ color: "var(--green)" }}>{worker.name[0]}</span>
           </div>
-          {todayStatus.reportCount > 0 ? (
-            <div className="text-xs" style={{ color: "var(--muted)" }}>
-              今日报量 {todayStatus.reportCount} 条
-              {todayStatus.approvedCount > 0 && <span style={{ color: "var(--green)" }}> · {todayStatus.approvedCount} 条已批</span>}
-              {todayStatus.pendingCount > 0 && <span style={{ color: "var(--amber)" }}> · {todayStatus.pendingCount} 条待审</span>}
-            </div>
-          ) : (
-            <div className="text-xs" style={{ color: "var(--muted)" }}>今日暂无报量记录</div>
-          )}
-          {/* 月度出勤 & 收益 */}
-          <div className="mt-2 pt-2 flex items-center justify-between" style={{ borderTop: "1px solid rgba(59,130,246,0.1)" }}>
-            <div className="text-xs" style={{ color: "var(--muted)" }}>
-              本月出勤
-              <span className="ml-1 font-mono font-semibold" style={{ color: "var(--text)" }}>
-                {todayStatus.monthAttendance} 天
+          <div className="flex-1">
+            <div className="text-base font-bold text-white">{worker.name}</div>
+            <div className="text-xs mt-0.5" style={{ color: "var(--muted)" }}>{worker.project}</div>
+          </div>
+          <button onClick={onViewHistory}
+            className="text-xs px-3 py-2 rounded-lg"
+            style={{ background: "var(--surface)", border: "1px solid var(--border)", color: "var(--muted)" }}>
+            记录
+          </button>
+        </div>
+
+        {/* 今日打卡状态 */}
+        {todayStatus && (
+          <div className="mt-3 flex items-center gap-2 px-3 py-2 rounded-xl"
+            style={todayStatus.checkedIn
+              ? { background: "rgba(16,185,129,0.08)", border: "1px solid rgba(16,185,129,0.2)" }
+              : { background: "rgba(59,130,246,0.06)", border: "1px solid rgba(59,130,246,0.15)" }}>
+            <span className="w-2 h-2 rounded-full" style={{ background: todayStatus.checkedIn ? "var(--green)" : "var(--muted)" }} />
+            <span className="text-xs" style={{ color: todayStatus.checkedIn ? "var(--green)" : "var(--muted)" }}>
+              {todayStatus.checkedIn ? `已打卡 ${todayStatus.checkinTime}` : "今日未打卡"}
+            </span>
+            {todayStatus.reportCount > 0 && (
+              <span className="ml-auto text-xs" style={{ color: "var(--muted)" }}>
+                {todayStatus.reportCount}条报量
+                {todayStatus.approvedCount > 0 && <span style={{ color: "var(--green)" }}> {todayStatus.approvedCount}已批</span>}
               </span>
-            </div>
-            {todayStatus.monthEarnings !== null ? (
-              <div className="text-xs" style={{ color: "var(--muted)" }}>
-                预计收益
-                <span className="ml-1 font-mono font-semibold" style={{ color: "var(--green)" }}>
-                  ¥{todayStatus.monthEarnings.toLocaleString()}
-                </span>
-              </div>
-            ) : (
-              <div className="text-xs" style={{ color: "var(--muted)" }}>暂无工资配置</div>
             )}
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
-      <div className="w-full max-w-xs space-y-3">
+      {/* ── 可滚动内容区 ── */}
+      <div className="flex-1 overflow-y-auto px-5 pb-28 space-y-4">
+        {/* ── 积分卡片 ── */}
+        {dash && (
+          <div className="grid grid-cols-2 gap-3">
+            {/* 鸡腿积分 */}
+            <div className="p-3.5 rounded-2xl" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+              <div className="text-[10px] mb-1" style={{ color: "var(--muted)" }}>鸡腿积分</div>
+              <div className="text-2xl font-bold" style={{ color: "#f59e0b" }}>
+                {dash.points.rewardPoints}
+              </div>
+              {dash.recentRewards.length > 0 && (
+                <div className="mt-1.5 text-[10px] truncate" style={{ color: "rgba(245,158,11,0.6)" }}>
+                  +{dash.recentRewards[0].points} {dash.recentRewards[0].reason}
+                </div>
+              )}
+            </div>
+            {/* 违章扣分 */}
+            <div className="p-3.5 rounded-2xl" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+              <div className="text-[10px] mb-1" style={{ color: "var(--muted)" }}>违章扣分</div>
+              <div className="text-2xl font-bold" style={{ color: dash.points.penaltyPoints >= 8 ? "#ef4444" : dash.points.penaltyPoints > 0 ? "var(--amber)" : "var(--muted)" }}>
+                {dash.points.penaltyPoints}<span className="text-xs font-normal">/12</span>
+              </div>
+              {/* 12分进度条 */}
+              <div className="mt-1.5 h-1 rounded-full" style={{ background: "rgba(239,68,68,0.15)" }}>
+                <div className="h-full rounded-full transition-all" style={{
+                  width: `${Math.min((dash.points.penaltyPoints / 12) * 100, 100)}%`,
+                  background: dash.points.penaltyPoints >= 8 ? "#ef4444" : dash.points.penaltyPoints >= 4 ? "var(--amber)" : "rgba(148,163,184,0.4)",
+                }} />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── 连续作业 ── */}
+        {dash && (
+          <div className="p-3.5 rounded-2xl" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-1.5">
+                <span className="text-sm">
+                  {dash.streak.days >= 7 ? "🔥" : dash.streak.days >= 3 ? "⚡" : "💪"}
+                </span>
+                <span className="text-xs font-medium text-white">连续作业 {dash.streak.days} 天</span>
+              </div>
+              {dash.streak.days < 30 && (
+                <span className="text-[10px] px-2 py-0.5 rounded-full" style={{ background: "rgba(245,158,11,0.1)", color: "var(--amber)" }}>
+                  再坚持 {dash.streak.nextThreshold - dash.streak.days} 天奖 {dash.streak.nextReward} 鸡腿
+                </span>
+              )}
+            </div>
+            {/* 阈值进度点 */}
+            <div className="flex items-center gap-1">
+              {[3, 5, 7, 15, 30].map((d) => (
+                <div key={d} className="flex-1 flex flex-col items-center gap-1">
+                  <div className="w-full h-1 rounded-full" style={{
+                    background: dash.streak.days >= d ? "var(--green)" : "rgba(148,163,184,0.15)",
+                  }} />
+                  <span className="text-[8px]" style={{ color: dash.streak.days >= d ? "var(--green)" : "var(--muted)" }}>{d}天</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ── 本月统计 ── */}
+        {dash && (
+          <div className="p-3.5 rounded-2xl" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-xs font-semibold text-white">本月统计</span>
+              <span className="text-[10px] px-2 py-0.5 rounded-full" style={{ background: "var(--bg)", color: "var(--muted)" }}>
+                {new Date().getMonth() + 1}月
+              </span>
+            </div>
+
+            {/* 核心数据 */}
+            <div className="grid grid-cols-3 gap-2 mb-3">
+              <div className="text-center">
+                <div className="text-lg font-bold text-white">{dash.monthStats.attendance}</div>
+                <div className="text-[10px]" style={{ color: "var(--muted)" }}>出勤天</div>
+              </div>
+              <div className="text-center">
+                <div className="text-lg font-bold" style={{ color: "var(--green)" }}>
+                  ¥{dash.monthStats.verifiedValue > 0 ? dash.monthStats.verifiedValue.toLocaleString() : dash.monthStats.totalValue.toLocaleString()}
+                </div>
+                <div className="text-[10px]" style={{ color: "var(--muted)" }}>
+                  {dash.monthStats.verifiedValue > 0 ? "已审产值" : "报量产值"}
+                </div>
+              </div>
+              <div className="text-center">
+                <div className="text-lg font-bold text-white">{dash.monthStats.photoCount}</div>
+                <div className="text-[10px]" style={{ color: "var(--muted)" }}>照片</div>
+              </div>
+            </div>
+
+            {/* 日工月度收益 */}
+            {dash.monthStats.monthEarnings !== null && (
+              <div className="px-3 py-2 rounded-xl flex items-center justify-between"
+                style={{ background: "rgba(16,185,129,0.06)", border: "1px solid rgba(16,185,129,0.15)" }}>
+                <span className="text-xs" style={{ color: "var(--muted)" }}>预计月工资</span>
+                <span className="text-sm font-bold" style={{ color: "var(--green)" }}>¥{dash.monthStats.monthEarnings.toLocaleString()}</span>
+              </div>
+            )}
+
+            {/* 计量工：按工序汇总 */}
+            {dash.monthStats.reportStats.length > 0 && (
+              <div className="mt-3 space-y-1.5">
+                <div className="text-[10px] font-medium" style={{ color: "var(--muted)" }}>报量明细</div>
+                {dash.monthStats.reportStats.slice(0, 5).map((rs) => (
+                  <div key={rs.task} className="flex items-center justify-between px-3 py-2 rounded-lg"
+                    style={{ background: "var(--bg)" }}>
+                    <span className="text-xs text-white">{rs.task}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px]" style={{ color: "var(--muted)" }}>{rs.totalReports}条</span>
+                      <span className="text-xs font-mono" style={{ color: "var(--green)" }}>¥{rs.totalValue.toLocaleString()}</span>
+                    </div>
+                  </div>
+                ))}
+                {dash.monthStats.reportStats.length > 5 && (
+                  <div className="text-[10px] text-center" style={{ color: "var(--muted)" }}>
+                    还有 {dash.monthStats.reportStats.length - 5} 项...
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── 排行榜入口 ── */}
+        {leaderboard && (
+          <div className="rounded-2xl" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+            <button onClick={() => setShowLeaderboard(!showLeaderboard)}
+              className="w-full p-3.5 flex items-center justify-between">
+              <span className="text-xs font-semibold text-white">本月排行</span>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" strokeWidth="2"
+                style={{ transform: showLeaderboard ? "rotate(180deg)" : "none", transition: "transform 0.2s" }}>
+                <polyline points="6 9 12 15 18 9" />
+              </svg>
+            </button>
+
+            {showLeaderboard && (
+              <div className="px-3.5 pb-3.5">
+                {/* 排行榜类型 Tab */}
+                <div className="flex gap-1 mb-3 overflow-x-auto pb-1" style={{ scrollbarWidth: "none" }}>
+                  {LB_TABS.map((t) => (
+                    <button key={t.key} onClick={() => setLbTab(t.key)}
+                      className="shrink-0 text-[10px] px-2.5 py-1.5 rounded-lg font-medium"
+                      style={{
+                        background: lbTab === t.key ? `${t.color}20` : "transparent",
+                        border: `1px solid ${lbTab === t.key ? `${t.color}50` : "var(--border)"}`,
+                        color: lbTab === t.key ? t.color : "var(--muted)",
+                      }}>
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* 排行榜内容 */}
+                {leaderboard[lbTab] && (
+                  <div className="space-y-1.5">
+                    {leaderboard[lbTab].slice(0, 10).map((entry) => {
+                      const isMe = entry.name === worker.name;
+                      const tabDef = LB_TABS.find((t) => t.key === lbTab)!;
+                      return (
+                        <div key={entry.rank} className="flex items-center gap-2.5 px-3 py-2 rounded-lg"
+                          style={{
+                            background: isMe ? "rgba(59,130,246,0.08)" : "var(--bg)",
+                            border: isMe ? "1px solid rgba(59,130,246,0.2)" : "1px solid transparent",
+                          }}>
+                          <span className="text-xs font-bold w-5 text-center" style={{
+                            color: entry.rank <= 3 ? ["#f59e0b", "#94a3b8", "#cd7f32"][entry.rank - 1] : "var(--muted)",
+                          }}>
+                            {entry.rank <= 3 ? ["🥇", "🥈", "🥉"][entry.rank - 1] : entry.rank}
+                          </span>
+                          <span className="text-xs flex-1" style={{ color: isMe ? "white" : "var(--muted)" }}>
+                            {entry.name}
+                            {isMe && <span className="ml-1 text-[9px]" style={{ color: "var(--accent)" }}>(我)</span>}
+                          </span>
+                          <span className="text-xs font-mono" style={{ color: tabDef.color }}>
+                            {lbTab === "value" ? `¥${Number(entry.value).toLocaleString()}` : `${entry.value}${tabDef.unit}`}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── 最近奖罚记录 ── */}
+        {dash && (dash.recentRewards.length > 0 || dash.recentPenalties.length > 0) && (
+          <div className="rounded-2xl p-3.5" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+            <div className="text-xs font-semibold text-white mb-2">最近记录</div>
+            <div className="space-y-1.5">
+              {[...dash.recentRewards.map((r) => ({ ...r, type: "reward" as const })),
+                ...dash.recentPenalties.map((p) => ({ ...p, type: "penalty" as const }))]
+                .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+                .slice(0, 5)
+                .map((item, idx) => (
+                  <div key={idx} className="flex items-center justify-between px-3 py-2 rounded-lg" style={{ background: "var(--bg)" }}>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs">{item.type === "reward" ? "🍗" : "⚠️"}</span>
+                      <span className="text-xs text-white">{item.reason}</span>
+                    </div>
+                    <span className="text-xs font-mono" style={{ color: item.type === "reward" ? "#f59e0b" : "#ef4444" }}>
+                      {item.type === "reward" ? "+" : "-"}{item.points}
+                    </span>
+                  </div>
+                ))}
+            </div>
+          </div>
+        )}
+
         {error && (
-          <div className="px-3 py-2.5 rounded-xl text-xs text-center" style={{ background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.25)", color: "#f87171" }}>
+          <div className="px-3 py-2.5 rounded-xl text-xs text-center"
+            style={{ background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.25)", color: "#f87171" }}>
             {error}
           </div>
         )}
+      </div>
+
+      {/* ── 底部固定按钮 ── */}
+      <div className="fixed bottom-0 left-0 right-0 px-5 py-4 space-y-2.5"
+        style={{ background: "linear-gradient(0deg, var(--bg) 80%, transparent 100%)" }}>
         <button
           onClick={handleCheckIn}
           disabled={checking}
-          className="w-full py-5 rounded-2xl text-base font-semibold text-white transition-all active:scale-95 disabled:opacity-60"
+          className="w-full py-4 rounded-2xl text-base font-semibold text-white transition-all active:scale-95 disabled:opacity-60"
           style={{
             background: "linear-gradient(135deg, #10b981, #059669)",
-            boxShadow: "0 0 32px rgba(16,185,129,0.35)",
-          }}
-        >
+            boxShadow: "0 0 24px rgba(16,185,129,0.3)",
+          }}>
           {checking ? "打卡中..." : "进场打卡"}
-        </button>
-        <button
-          onClick={onViewHistory}
-          className="w-full py-3.5 rounded-2xl text-sm font-medium transition-all active:scale-95"
-          style={{ background: "var(--surface)", border: "1px solid var(--border)", color: "var(--muted)" }}
-        >
-          查看历史记录
         </button>
       </div>
     </div>
