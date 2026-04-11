@@ -2,7 +2,7 @@
 import { useState, useEffect } from "react";
 
 type Report = { 工序: string; 规格: string; 数量: string };
-type Phase = "login" | "checkin" | "form" | "smart-result" | "confirm" | "done";
+type Phase = "login" | "rules" | "training" | "checkin" | "form" | "smart-result" | "confirm" | "done";
 type FormMode = "manual" | "smart";
 
 // 智能拆解后的清单条目
@@ -471,10 +471,12 @@ function CheckInScreen({
   worker,
   onCheckIn,
   onViewHistory,
+  onLocked,
 }: {
   worker: Worker;
   onCheckIn: () => void;
   onViewHistory: () => void;
+  onLocked: () => void;
 }) {
   const [checking, setChecking] = useState(false);
   const [todayStatus, setTodayStatus] = useState<TodayStatus | null>(null);
@@ -547,7 +549,14 @@ function CheckInScreen({
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        setError(err.error ?? "打卡失败，请重试");
+        if (err.code === "LOCKED") {
+          setError("账号已锁定，正在跳转安规学习...");
+          setTimeout(() => onLocked(), 1500);
+        } else if (err.code === "RULES_UNCONFIRMED") {
+          setError("有新的进场须知规则需确认，请联系管理员");
+        } else {
+          setError(err.error ?? "打卡失败，请重试");
+        }
         return;
       }
       onCheckIn();
@@ -1325,6 +1334,191 @@ function DoneScreen({
   );
 }
 
+// ─── Training Screen ───────────────────────────────────────────────────────────
+function TrainingScreen({ worker, onComplete }: { worker: Worker; onComplete: () => void }) {
+  const [trainings, setTrainings] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [activeTraining, setActiveTraining] = useState<any>(null);
+  const [questions, setQuestions] = useState<any[]>([]);
+  const [answers, setAnswers] = useState<Record<number, string>>({});
+  const [result, setResult] = useState<any>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/worker/trainings", { headers: { "x-worker-id": worker.id } })
+      .then((r) => r.json())
+      .then((data) => { if (Array.isArray(data)) setTrainings(data); })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [worker.id]);
+
+  const startExam = async (trainingId: number) => {
+    try {
+      const res = await fetch(`/api/worker/trainings/${trainingId}`, { headers: { "x-worker-id": worker.id } });
+      const data = await res.json();
+      if (data.questions) {
+        setActiveTraining(data);
+        setQuestions(data.questions);
+        setAnswers({});
+        setResult(null);
+      }
+    } catch { /* ignore */ }
+  };
+
+  const submitExam = async () => {
+    if (!activeTraining || Object.keys(answers).length < questions.length) return;
+    setSubmitting(true);
+    try {
+      const res = await fetch(`/api/worker/trainings/${activeTraining.id}`, {
+        method: "POST",
+        headers: { "x-worker-id": worker.id, "Content-Type": "application/json" },
+        body: JSON.stringify({ answers }),
+      });
+      const data = await res.json();
+      setResult(data);
+    } catch { /* ignore */ }
+    setSubmitting(false);
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-[100dvh] flex items-center justify-center grid-bg">
+        <div className="w-5 h-5 rounded-full border-2 animate-spin" style={{ borderColor: "var(--accent)", borderTopColor: "transparent" }} />
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-[100dvh] grid-bg flex flex-col px-6 py-8">
+      <div className="max-w-lg mx-auto w-full space-y-5">
+        <div className="text-center">
+          <h2 className="text-lg font-bold text-white">安规学习</h2>
+          <p className="text-xs mt-1" style={{ color: "var(--muted)" }}>完成学习并通过考试（≥80分）可核销扣分</p>
+        </div>
+
+        {/* Training list */}
+        {!activeTraining && (
+          <div className="space-y-3">
+            {trainings.length === 0 ? (
+              <div className="text-center py-12 text-sm" style={{ color: "var(--muted)" }}>暂无培训内容</div>
+            ) : trainings.map((t) => (
+              <div key={t.id} className="glass rounded-xl p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-semibold text-white">{t.title}</span>
+                  {t.attempt?.passed && (
+                    <span className="text-[10px] px-2 py-0.5 rounded-full"
+                      style={{ background: "rgba(16,185,129,0.1)", color: "var(--green)" }}>
+                      已通过 {t.attempt.score}分
+                    </span>
+                  )}
+                </div>
+                <div className="text-xs leading-relaxed mb-3" style={{ color: "var(--muted)" }}>
+                  {t.content.length > 100 ? t.content.slice(0, 100) + "..." : t.content}
+                </div>
+                <button onClick={() => startExam(t.id)}
+                  className="text-xs px-4 py-2 rounded-lg font-medium"
+                  style={{ background: "var(--accent)", color: "#fff" }}>
+                  {t.attempt?.passed ? "重新考试" : "开始学习+考试"}
+                </button>
+              </div>
+            ))}
+            <button onClick={onComplete} className="w-full py-2.5 rounded-xl text-sm"
+              style={{ background: "var(--bg)", color: "var(--muted)", border: "1px solid var(--border)" }}>
+              返回打卡
+            </button>
+          </div>
+        )}
+
+        {/* Exam view */}
+        {activeTraining && !result && (
+          <div className="space-y-4">
+            <div className="glass rounded-xl p-4">
+              <div className="text-xs font-semibold text-white mb-2">{activeTraining.title}</div>
+              <div className="text-xs leading-relaxed whitespace-pre-wrap" style={{ color: "var(--muted)" }}>
+                {activeTraining.content}
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <div className="text-xs font-semibold text-white">考试题目</div>
+              {questions.map((q: any, idx: number) => (
+                <div key={q.id} className="glass rounded-xl p-3">
+                  <div className="text-xs text-white mb-2">{idx + 1}. {q.question}</div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {["A", "B", "C", "D"].map((opt) => {
+                      const key = `option${opt}` as keyof typeof q;
+                      return (
+                        <button key={opt} onClick={() => setAnswers({ ...answers, [q.id]: opt })}
+                          className="text-xs px-3 py-2 rounded-lg text-left"
+                          style={{
+                            background: answers[q.id] === opt ? "rgba(59,130,246,0.15)" : "var(--bg)",
+                            border: `1px solid ${answers[q.id] === opt ? "var(--accent)" : "var(--border)"}`,
+                            color: answers[q.id] === opt ? "white" : "var(--muted)",
+                          }}>
+                          {opt}. {q[key]}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex gap-2">
+              <button onClick={submitExam} disabled={Object.keys(answers).length < questions.length || submitting}
+                className="flex-1 py-2.5 rounded-xl text-sm font-semibold disabled:opacity-50"
+                style={{ background: "var(--accent)", color: "#fff" }}>
+                {submitting ? "提交中..." : "提交答案"}
+              </button>
+              <button onClick={() => { setActiveTraining(null); setQuestions([]); }}
+                className="px-4 py-2.5 rounded-xl text-sm"
+                style={{ background: "var(--bg)", color: "var(--muted)", border: "1px solid var(--border)" }}>
+                返回
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Result view */}
+        {result && (
+          <div className="space-y-4 text-center">
+            <div className="glass rounded-xl p-6">
+              <div className="text-4xl font-bold mb-2" style={{ color: result.passed ? "var(--green)" : "#ef4444" }}>
+                {result.score}分
+              </div>
+              <div className="text-sm" style={{ color: result.passed ? "var(--green)" : "#ef4444" }}>
+                {result.passed ? "考试通过！" : `未通过（需≥80分，答对 ${result.correct}/${result.total}）`}
+              </div>
+              {result.passed && result.pointsCleared > 0 && (
+                <div className="mt-3 text-xs" style={{ color: "var(--amber)" }}>
+                  核销 {result.pointsCleared} 分违章扣分
+                </div>
+              )}
+              {result.passed && result.unlocked && (
+                <div className="mt-2 text-xs font-semibold" style={{ color: "var(--green)" }}>
+                  账号已解锁，可以正常打卡！
+                </div>
+              )}
+            </div>
+            <button onClick={() => { setActiveTraining(null); setResult(null); }}
+              className="px-6 py-2.5 rounded-xl text-sm"
+              style={{ background: "var(--bg)", color: "var(--muted)", border: "1px solid var(--border)" }}>
+              {result.passed ? "返回" : "重新考试"}
+            </button>
+            {result.passed && (
+              <button onClick={onComplete}
+                className="w-full py-3 rounded-xl text-sm font-semibold"
+                style={{ background: "var(--accent)", color: "#fff" }}>
+                去打卡
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Worker Page ─────────────────────────────────────────────────────────
 export default function WorkerPage() {
   const [phase, setPhase] = useState<Phase>("login");
@@ -1340,6 +1534,9 @@ export default function WorkerPage() {
   const [parsedItems, setParsedItems] = useState<ParsedBOQItem[]>([]);
   const [parsedRawInput, setParsedRawInput] = useState("");
   const [batchSubmitting, setBatchSubmitting] = useState(false);
+  // 规则确认相关
+  const [pendingRules, setPendingRules] = useState<any[]>([]);
+  const [rulesStep, setRulesStep] = useState(0);
 
   // Restore identity from localStorage + verify worker still exists in DB (RH1)
   useEffect(() => {
@@ -1363,7 +1560,25 @@ export default function WorkerPage() {
   const handleLogin = (w: Worker) => {
     setWorker(w);
     localStorage.setItem("pl_worker", JSON.stringify(w));
-    setPhase("checkin");
+    // Login → check rules → checkin
+    checkRulesAndProceed(w.id);
+  };
+
+  const checkRulesAndProceed = async (wid: string) => {
+    try {
+      const res = await fetch("/api/worker/rules", { headers: { "x-worker-id": wid } });
+      if (!res.ok) { setPhase("checkin"); return; }
+      const rules = await res.json();
+      const unconfirmed = rules.filter((r: any) => !r.confirmed);
+      if (unconfirmed.length > 0) {
+        setPendingRules(unconfirmed);
+        setPhase("rules");
+      } else {
+        setPhase("checkin");
+      }
+    } catch {
+      setPhase("checkin");
+    }
   };
 
   const doCheckIn = () => {
@@ -1491,12 +1706,62 @@ export default function WorkerPage() {
   if (phase === "login") return <LoginScreen onLogin={handleLogin} />;
   if (!worker) return null;
 
+  // ── Rules confirmation phase ──
+  if (phase === "rules" && pendingRules.length > 0) {
+    const rule = pendingRules[rulesStep];
+    const isLast = rulesStep >= pendingRules.length - 1;
+    const handleConfirm = async () => {
+      try {
+        await fetch(`/api/worker/rules/${rule.id}`, {
+          method: "POST",
+          headers: { "x-worker-id": worker.id, "Content-Type": "application/json" },
+        });
+      } catch { /* ignore */ }
+      if (isLast) {
+        setPendingRules([]);
+        setRulesStep(0);
+        setPhase("checkin");
+      } else {
+        setRulesStep(rulesStep + 1);
+      }
+    };
+    return (
+      <div className="min-h-[100dvh] flex flex-col items-center justify-center px-6 py-10 grid-bg">
+        <div className="w-full max-w-md space-y-5">
+          <div className="text-center">
+            <div className="text-lg font-bold text-white">{rule.title}</div>
+            <div className="text-xs mt-1" style={{ color: "var(--muted)" }}>
+              第 {rulesStep + 1} / {pendingRules.length} 条 · 版本 v{rule.version}
+            </div>
+          </div>
+          <div className="glass rounded-xl p-5">
+            <div className="text-sm leading-relaxed whitespace-pre-wrap text-white">{rule.content}</div>
+          </div>
+          <button onClick={handleConfirm}
+            className="w-full py-3 rounded-xl text-sm font-semibold"
+            style={{ background: "var(--accent)", color: "#fff" }}>
+            {isLast ? "全部确认，进入打卡" : "我已阅读，下一条"}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Training / exam phase ──
+  if (phase === "training") {
+    return <TrainingScreen worker={worker} onComplete={() => {
+      // Re-check rules after training
+      checkRulesAndProceed(worker.id);
+    }} />;
+  }
+
   if (phase === "checkin") {
     return (
       <CheckInScreen
         worker={worker}
         onCheckIn={doCheckIn}
         onViewHistory={() => setShowHistory(true)}
+        onLocked={() => setPhase("training")}
       />
     );
   }

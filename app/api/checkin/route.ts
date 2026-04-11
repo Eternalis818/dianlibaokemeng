@@ -22,6 +22,22 @@ export async function POST(req: NextRequest) {
   const worker = await prisma.worker.findUnique({ where: { id: workerId } });
   if (!worker) return Response.json({ error: "工人不存在" }, { status: 404 });
 
+  // ── 锁定检查 ──────────────────────────────────────────────────────────────
+  if ((worker as any).isLocked) {
+    return Response.json({ error: "账号已锁定，需完成安规学习", code: "LOCKED" }, { status: 403 });
+  }
+
+  // ── 规则确认检查 ──────────────────────────────────────────────────────────
+  const unconfirmedRules = await prisma.$queryRawUnsafe<{ id: number }[]>(
+    `SELECT sr.id FROM "SiteRule" sr
+     WHERE sr."isActive" = true AND NOT EXISTS (
+       SELECT 1 FROM "RuleConfirmation" rc WHERE rc."workerId" = '${workerId}' AND rc."ruleId" = sr.id AND rc."ruleVersion" = sr.version
+     ) LIMIT 1`
+  );
+  if (unconfirmedRules.length > 0) {
+    return Response.json({ error: "有未确认的进场须知规则", code: "RULES_UNCONFIRMED" }, { status: 403 });
+  }
+
   const todayUTC = new Date();
   todayUTC.setUTCHours(0, 0, 0, 0);
 
