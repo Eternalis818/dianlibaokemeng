@@ -59,6 +59,12 @@ const NAV_ITEMS = [
     path: "M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 7a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75",
   },
   {
+    href: "/penalties",
+    label: "违规扣分",
+    badgeKey: null,
+    path: "M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z",
+  },
+  {
     href: "/equipment",
     label: "工器具",
     badgeKey: "equipment" as const,

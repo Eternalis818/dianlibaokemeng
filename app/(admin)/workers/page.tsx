@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
+import { useRouter } from "next/navigation";
 
 interface Worker {
   id: string;
@@ -22,6 +23,7 @@ interface Project {
 }
 
 export default function WorkersPage() {
+  const router = useRouter();
   const [workers, setWorkers] = useState<Worker[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
@@ -242,7 +244,7 @@ export default function WorkersPage() {
                   </div>
                   <div>
                     <div className="text-sm font-semibold text-white flex items-center gap-2">
-                      {w.name}
+                      <span className="cursor-pointer hover:underline" onClick={() => router.push(`/workers/${w.id}`)}>{w.name}</span>
                       {w.wageType && w.wageRate && (
                         <span className="text-[10px] px-1.5 py-0.5 rounded-full font-normal"
                           style={{ background: "rgba(59,130,246,0.1)", color: "var(--accent)", border: "1px solid rgba(59,130,246,0.2)" }}>
@@ -270,6 +272,11 @@ export default function WorkersPage() {
                       -{w.penaltyPoints}分
                     </span>
                   )}
+                  <button onClick={() => router.push(`/workers/${w.id}`)}
+                    className="text-xs px-2.5 py-1 rounded-lg transition-all"
+                    style={{ color: "var(--green)", background: "rgba(16,185,129,0.08)", border: "1px solid rgba(16,185,129,0.15)" }}>
+                    详情
+                  </button>
                   <button onClick={() => openEdit(w)}
                     className="text-xs px-2.5 py-1 rounded-lg transition-all"
                     style={{ color: "var(--accent)", background: "rgba(59,130,246,0.08)", border: "1px solid rgba(59,130,246,0.15)" }}>
