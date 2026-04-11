@@ -437,13 +437,68 @@ function VisaActionCard({
   );
 }
 
+// ─── PnL Card ──────────────────────────────────────────────────────────────────
+interface PnlData {
+  projects: { project: string; reportValue: number; visaAmount: number; expense: number; revenue: number; pnl: number; pnlPercent: number }[];
+  totals: { reportValue: number; visaAmount: number; expense: number; revenue: number; pnl: number; pnlPercent: number };
+}
+
+function PnlCard({ data }: { data: PnlData }) {
+  const { totals } = data;
+  const isProfit = totals.pnl >= 0;
+
+  return (
+    <div className="glass rounded-2xl p-4 space-y-3">
+      <div className="text-xs font-medium" style={{ color: "var(--muted)" }}>项目盈亏总览</div>
+      {/* 总盈亏 */}
+      <div className="flex items-center justify-between">
+        <span className="text-sm text-white">{isProfit ? "总盈余" : "总亏损"}</span>
+        <span className="font-mono font-bold text-2xl" style={{ color: isProfit ? "var(--green)" : "#f87171" }}>
+          {isProfit ? "+" : ""}¥{totals.pnl.toLocaleString()}
+        </span>
+      </div>
+      {/* 明细条 */}
+      <div className="grid grid-cols-3 gap-2 text-center">
+        <div className="rounded-xl py-2" style={{ background: "rgba(59,130,246,0.08)" }}>
+          <div className="text-[10px]" style={{ color: "var(--muted)" }}>产值</div>
+          <div className="font-mono text-sm font-bold" style={{ color: "var(--accent)" }}>¥{totals.reportValue.toLocaleString()}</div>
+        </div>
+        <div className="rounded-xl py-2" style={{ background: "rgba(245,158,11,0.08)" }}>
+          <div className="text-[10px]" style={{ color: "var(--muted)" }}>签证</div>
+          <div className="font-mono text-sm font-bold" style={{ color: "var(--amber)" }}>¥{totals.visaAmount.toLocaleString()}</div>
+        </div>
+        <div className="rounded-xl py-2" style={{ background: "rgba(239,68,68,0.08)" }}>
+          <div className="text-[10px]" style={{ color: "var(--muted)" }}>支出</div>
+          <div className="font-mono text-sm font-bold" style={{ color: "#f87171" }}>¥{totals.expense.toLocaleString()}</div>
+        </div>
+      </div>
+      {/* 各项目盈亏 */}
+      {data.projects.length > 1 && (
+        <div className="space-y-1.5">
+          {data.projects.map((p) => (
+            <div key={p.project} className="flex items-center justify-between px-3 py-2 rounded-xl" style={{ background: "var(--bg)" }}>
+              <span className="text-xs text-white truncate flex-1">{p.project}</span>
+              <span className="font-mono text-xs font-bold shrink-0 ml-2" style={{ color: p.pnl >= 0 ? "var(--green)" : "#f87171" }}>
+                {p.pnl >= 0 ? "+" : ""}¥{p.pnl.toLocaleString()}
+                <span className="font-normal" style={{ color: "var(--muted)" }}> ({p.pnlPercent}%)</span>
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Visas Tab ─────────────────────────────────────────────────────────────────
 function VisasTab({
   visas,
+  pnlData,
   onApprove,
   onReject,
 }: {
   visas: Visa[];
+  pnlData: PnlData | null;
   onApprove: (id: number) => void;
   onReject: (id: number) => void;
 }) {
@@ -464,6 +519,9 @@ function VisasTab({
 
   return (
     <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+      {/* 盈亏卡片 */}
+      {pnlData && <PnlCard data={pnlData} />}
+
       {/* Project filter pills */}
       {projects.length > 1 && (
         <div className="flex gap-2 overflow-x-auto pb-0.5" style={{ scrollbarWidth: "none" }}>
@@ -889,6 +947,7 @@ export default function BossPage() {
   const [loading, setLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [agentOpen, setAgentOpen] = useState(false);
+  const [pnlData, setPnlData] = useState<PnlData | null>(null);
 
   // 恢复会话
   useEffect(() => {
@@ -909,18 +968,20 @@ export default function BossPage() {
 
   const fetchAll = useCallback(async () => {
     try {
-      const [r, v, c, ci, w] = await Promise.all([
+      const [r, v, c, ci, w, pnl] = await Promise.all([
         fetch("/api/reports").then((res) => res.json()),
         fetch("/api/visas").then((res) => res.json()),
         fetch("/api/corrections").then((res) => res.json()),
         fetch("/api/checkin").then((res) => res.json()),
         fetch("/api/workers").then((res) => res.json()),
+        fetch("/api/boss/visa-pnl").then((res) => res.json()),
       ]);
       setReports(Array.isArray(r) ? r : []);
       setVisas(Array.isArray(v) ? v : []);
       setCorrections(Array.isArray(c) ? c : []);
       setCheckIns(Array.isArray(ci) ? ci : []);
       setWorkers(Array.isArray(w) ? w : []);
+      if (pnl && pnl.totals) setPnlData(pnl);
       setLastUpdated(new Date());
     } catch (err) {
       console.error("Boss page fetch error:", err);
@@ -1048,7 +1109,7 @@ export default function BossPage() {
           </>
         )}
         {tab === "visas" && (
-          <VisasTab visas={visas} onApprove={(id) => updateVisa(id, "approved")} onReject={(id) => updateVisa(id, "rejected")} />
+          <VisasTab visas={visas} pnlData={pnlData} onApprove={(id) => updateVisa(id, "approved")} onReject={(id) => updateVisa(id, "rejected")} />
         )}
         {tab === "accounting" && <AccountingTab />}
         {tab === "quantities" && <QuantitiesTab />}
