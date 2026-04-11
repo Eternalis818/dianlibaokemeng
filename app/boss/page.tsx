@@ -4,6 +4,7 @@ import BossLogin from "./components/BossLogin";
 import AccountingTab from "./components/AccountingTab";
 import QuantitiesTab from "./components/QuantitiesTab";
 import SubscribeSheet from "./components/SubscribeSheet";
+import ReferralCard from "./components/ReferralCard";
 
 type Tab = "board" | "work" | "visas" | "accounting" | "quantities";
 type Status = "pending" | "approved" | "rejected";
@@ -950,6 +951,7 @@ export default function BossPage() {
   const [agentOpen, setAgentOpen] = useState(false);
   const [pnlData, setPnlData] = useState<PnlData | null>(null);
   const [subOpen, setSubOpen] = useState(false);
+  const [referralCode, setReferralCode] = useState<string | null>(null);
   const [subscription, setSubscription] = useState<{
     status: string; isActive: boolean; daysRemaining: number | null;
     plan: { code: string; name: string; aiQuota: number };
@@ -991,6 +993,9 @@ export default function BossPage() {
       setWorkers(Array.isArray(w) ? w : []);
       if (pnl && pnl.totals) setPnlData(pnl);
       if (subRes && subRes.subscription) setSubscription(subRes.subscription);
+      // Track activity + get referral code (fire and forget)
+      fetch("/api/boss/activity", { method: "POST" }).catch(() => {});
+      fetch("/api/boss/referral").then((r) => r.json()).then((d) => { if (d.code) setReferralCode(d.code); }).catch(() => {});
       setLastUpdated(new Date());
     } catch (err) {
       console.error("Boss page fetch error:", err);
@@ -1125,7 +1130,15 @@ export default function BossPage() {
       {/* Content */}
       <div className="flex-1 overflow-hidden flex flex-col">
         {tab === "board" && (
-          <BoardTab checkIns={checkIns} reports={reports} visas={visas} corrections={corrections} workers={workers} />
+          <div className="flex-1 overflow-y-auto">
+            <BoardTab checkIns={checkIns} reports={reports} visas={visas} corrections={corrections} workers={workers} />
+            {/* 推荐有礼 */}
+            {referralCode && boss && (
+              <div className="px-4 pb-4">
+                <ReferralCard code={referralCode} bossName={boss.name} />
+              </div>
+            )}
+          </div>
         )}
         {tab === "work" && (
           <>
