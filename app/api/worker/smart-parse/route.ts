@@ -61,6 +61,7 @@ export async function POST(req: NextRequest) {
           { role: "user", content: input },
         ],
         { maxTokens: 1500, temperature: 0.3 },
+        "default" // 智能拆解用默认模型
       );
     } catch (e) {
       const msg = e instanceof Error ? e.message : "unknown";

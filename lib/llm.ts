@@ -1,9 +1,21 @@
 /**
- * 通用 LLM 调用工具
- * 支持 OpenAI 兼容 API（MiniMax、火山引擎、DeepSeek 等）
+ * 多模型 LLM 调用工具
+ * 支持按功能（feature）分配不同模型配置
  *
- * 配置优先级：数据库 Settings 表 > 环境变量
+ * 配置体系：
+ * - 默认配置：llm_api_key / llm_model / llm_base_url
+ * - 功能配置：{feature}_api_key / {feature}_model / {feature}_base_url
+ * - 优先级：功能配置 > 默认配置 > 环境变量
+ *
+ * 支持的功能：
+ * - default    — 默认（智能拆解、工人聊天等）
+ * - photo      — 照片复核（需多模态模型）
+ * - summary    — Boss AI 摘要
  */
+
+// ─── Types ──────────────────────────────────────────────────────────────
+
+export type LLMFeature = "default" | "photo" | "summary";
 
 interface LLMConfig {
   apiKey: string;
@@ -11,58 +23,15 @@ interface LLMConfig {
   baseUrl: string;
 }
 
-// 内存缓存（60秒过期，避免每次请求都查数据库）
-let cachedConfig: LLMConfig | null = null;
-let cacheExpiry = 0;
-
-async function getLLMConfigFromDB(): Promise<Partial<LLMConfig> | null> {
-  try {
-    // 动态导入避免循环依赖
-    const { prisma } = await import("@/lib/prisma");
-    const rows = await prisma.$queryRawUnsafe<{ key: string; value: string }[]>(
-      `SELECT "key", "value" FROM "Settings" WHERE "key" IN ('llm_api_key', 'llm_model', 'llm_base_url')`
-    );
-    if (!rows.length) return null;
-    const map = Object.fromEntries(rows.map((r) => [r.key, r.value]));
-    return {
-      apiKey: map.llm_api_key,
-      model: map.llm_model,
-      baseUrl: map.llm_base_url,
-    };
-  } catch {
-    return null; // 数据库不可用时回退到环境变量
-  }
-}
-
-async function getLLMConfig(): Promise<LLMConfig> {
-  // 检查缓存
-  if (cachedConfig && Date.now() < cacheExpiry) {
-    return cachedConfig;
-  }
-
-  const dbConfig = await getLLMConfigFromDB();
-  const envConfig: LLMConfig = {
-    apiKey: process.env.LLM_API_KEY || process.env.VOLC_API_KEY || "",
-    model: process.env.LLM_MODEL || process.env.VOLC_MODEL || "",
-    baseUrl: (process.env.LLM_BASE_URL || process.env.VOLC_BASE_URL || "").replace(/\/+$/, ""),
-  };
-
-  const config: LLMConfig = {
-    apiKey: dbConfig?.apiKey || envConfig.apiKey,
-    model: dbConfig?.model || envConfig.model,
-    baseUrl: (dbConfig?.baseUrl || envConfig.baseUrl).replace(/\/+$/, ""),
-  };
-
-  // 缓存 60 秒
-  cachedConfig = config;
-  cacheExpiry = Date.now() + 60_000;
-
-  return config;
-}
-
 export interface ChatMessage {
   role: "system" | "user" | "assistant";
-  content: string;
+  content: string | ContentPart[];  // 支持 text + image_url 多模态
+}
+
+export interface ContentPart {
+  type: "text" | "image_url";
+  text?: string;
+  image_url?: { url: string };
 }
 
 export interface LLMOptions {
@@ -70,11 +39,65 @@ export interface LLMOptions {
   temperature?: number;
 }
 
+// ─── Config Resolution ─────────────────────────────────────────────────
+
+// 内存缓存（60秒过期）
+const configCache = new Map<string, { config: LLMConfig; expiry: number }>();
+
+/** Read a single setting value from DB */
+async function getSettingsMap(): Promise<Record<string, string>> {
+  try {
+    const { prisma } = await import("@/lib/prisma");
+    const rows = await prisma.$queryRawUnsafe<{ key: string; value: string }[]>(
+      `SELECT "key", "value" FROM "Settings"`
+    );
+    return Object.fromEntries(rows.map((r) => [r.key, r.value]));
+  } catch {
+    return {};
+  }
+}
+
+/** Get LLM config for a specific feature */
+export async function getLLMConfig(feature: LLMFeature = "default"): Promise<LLMConfig> {
+  const cacheKey = feature;
+  const cached = configCache.get(cacheKey);
+  if (cached && Date.now() < cached.expiry) return cached.config;
+
+  const settings = await getSettingsMap();
+
+  // Per-feature prefix: "photo" → "photo_api_key", "photo_model", "photo_base_url"
+  const prefix = feature === "default" ? "llm" : feature;
+
+  const resolve = (key: string, envKey: string): string => {
+    return (settings[`${prefix}_${key}`] || settings[`llm_${key}`] || process.env[envKey] || "").replace(/\/+$/, "");
+  };
+
+  const config: LLMConfig = {
+    apiKey: resolve("api_key", "LLM_API_KEY"),
+    model: resolve("model", "LLM_MODEL"),
+    baseUrl: resolve("base_url", "LLM_BASE_URL"),
+  };
+
+  configCache.set(cacheKey, { config, expiry: Date.now() + 60_000 });
+  return config;
+}
+
+/** Clear config cache (call after settings update) */
+export function clearLLMConfigCache() {
+  configCache.clear();
+}
+
+// ─── Chat Completion ───────────────────────────────────────────────────
+
 /**
- * 调用 LLM Chat Completions API
+ * Call LLM Chat Completions API for a specific feature
  */
-export async function chatCompletion(messages: ChatMessage[], options?: LLMOptions) {
-  const config = await getLLMConfig();
+export async function chatCompletion(
+  messages: ChatMessage[],
+  options?: LLMOptions,
+  feature: LLMFeature = "default"
+) {
+  const config = await getLLMConfig(feature);
 
   if (!config.apiKey) {
     throw new Error("LLM API Key 未配置，请在系统设置中配置");
@@ -104,11 +127,11 @@ export async function chatCompletion(messages: ChatMessage[], options?: LLMOptio
 }
 
 /**
- * 测试 LLM 连接（设置页面用）
+ * Test LLM connection for a specific feature config
  */
-export async function testLLMConnection(): Promise<{ ok: boolean; message: string; model?: string }> {
+export async function testLLMConnection(feature: LLMFeature = "default"): Promise<{ ok: boolean; message: string; model?: string }> {
   try {
-    const config = await getLLMConfig();
+    const config = await getLLMConfig(feature);
     if (!config.apiKey) return { ok: false, message: "API Key 未配置" };
     if (!config.baseUrl) return { ok: false, message: "API 地址未配置" };
     if (!config.model) return { ok: false, message: "模型名称未配置" };
@@ -140,3 +163,12 @@ export async function testLLMConnection(): Promise<{ ok: boolean; message: strin
     return { ok: false, message: `连接失败: ${msg}` };
   }
 }
+
+// ─── Feature Config Helpers ─────────────────────────────────────────────
+
+/** Feature metadata for settings page UI */
+export const LLM_FEATURES: { key: LLMFeature; label: string; desc: string }[] = [
+  { key: "default", label: "默认模型", desc: "智能拆解、工人聊天等文本任务" },
+  { key: "photo", label: "视觉模型", desc: "照片复核、多模态分析（需视觉能力）" },
+  { key: "summary", label: "摘要模型", desc: "Boss AI 摘要、报告生成" },
+];

@@ -40,6 +40,7 @@ export async function POST(req: NextRequest) {
           })),
         ],
         { maxTokens: 200, temperature: 0.7 },
+        "default" // 工人聊天用默认模型
       );
     } catch {
       return Response.json({ content: "网络不好，再说一遍？" }, { status: 200 });

@@ -7,41 +7,59 @@ interface SettingItem {
   source: "db" | "env";
   masked?: boolean;
 }
-
 interface Settings {
   llm_api_key: SettingItem;
   llm_model: SettingItem;
   llm_base_url: SettingItem;
 }
-
 interface Features {
-  feature_photo_review: { label: string; enabled: boolean };
+  [key: string]: { label: string; enabled: boolean };
 }
 
-const PRESET_MODELS = [
-  { name: "MiniMax M2.7", model: "MiniMax-M2.7", baseUrl: "https://api.minimaxi.com/v1" },
-  { name: "DeepSeek V3", model: "deepseek-chat", baseUrl: "https://api.deepseek.com/v1" },
-  { name: "OpenAI GPT-4o", model: "gpt-4o", baseUrl: "https://api.openai.com/v1" },
-  { name: "Claude Sonnet", model: "claude-sonnet-4-20250514", baseUrl: "https://api.anthropic.com/v1" },
-  { name: "通义千问 Plus", model: "qwen-plus", baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1" },
-  { name: "智谱 GLM-4", model: "glm-4", baseUrl: "https://open.bigmodel.cn/api/paas/v4" },
-  { name: "自定义", model: "", baseUrl: "" },
-];
+const FEATURES_META = [
+  { key: "default", label: "默认模型", desc: "智能拆解、工人聊天", presetGroup: "text" },
+  { key: "photo", label: "视觉模型", desc: "照片复核、多模态分析", presetGroup: "vision" },
+  { key: "summary", label: "摘要模型", desc: "Boss AI 摘要", presetGroup: "text" },
+] as const;
+
+const PRESET_MODELS = {
+  text: [
+    { name: "MiniMax M2.7", model: "MiniMax-M2.7", baseUrl: "https://api.minimaxi.com/v1" },
+    { name: "DeepSeek V3", model: "deepseek-chat", baseUrl: "https://api.deepseek.com/v1" },
+    { name: "通义千问 Plus", model: "qwen-plus", baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1" },
+    { name: "智谱 GLM-4", model: "glm-4", baseUrl: "https://open.bigmodel.cn/api/paas/v4" },
+    { name: "自定义", model: "", baseUrl: "" },
+  ],
+  vision: [
+    { name: "通义千问 VL", model: "qwen-vl-plus", baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1" },
+    { name: "MiniMax VL", model: "MiniMax-VL-01", baseUrl: "https://api.minimaxi.com/v1" },
+    { name: "DeepSeek VL", model: "deepseek-vl", baseUrl: "https://api.deepseek.com/v1" },
+    { name: "自定义", model: "", baseUrl: "" },
+  ],
+};
+
+type FeatureConfig = { apiKey: string; model: string; baseUrl: string };
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [features, setFeatures] = useState<Features | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [testing, setTesting] = useState(false);
-  const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
-  const [selectedPreset, setSelectedPreset] = useState(-1);
 
-  // 表单值
-  const [apiKey, setApiKey] = useState("");
-  const [model, setModel] = useState("");
-  const [baseUrl, setBaseUrl] = useState("");
+  // Active tab
+  const [activeTab, setActiveTab] = useState<string>("default");
+
+  // Per-feature configs
+  const [featureConfigs, setFeatureConfigs] = useState<Record<string, FeatureConfig>>({
+    default: { apiKey: "", model: "", baseUrl: "" },
+    photo: { apiKey: "", model: "", baseUrl: "" },
+    summary: { apiKey: "", model: "", baseUrl: "" },
+  });
+
+  // Per-feature test results
+  const [testResults, setTestResults] = useState<Record<string, { ok: boolean; message: string } | null>>({});
+  const [testing, setTesting] = useState<string | null>(null);
 
   const fetchSettings = useCallback(async () => {
     try {
@@ -50,340 +68,223 @@ export default function SettingsPage() {
       if (data.success) {
         setSettings(data.settings);
         if (data.features) setFeatures(data.features);
-        setApiKey(data.settings.llm_api_key.value);
-        setModel(data.settings.llm_model.value);
-        setBaseUrl(data.settings.llm_base_url.value);
-        // 匹配预设
-        const idx = PRESET_MODELS.findIndex(
-          (p) => p.model === data.settings.llm_model.value && p.baseUrl === data.settings.llm_base_url.value
-        );
-        setSelectedPreset(idx >= 0 ? idx : PRESET_MODELS.length - 1);
+
+        // Default config from main settings
+        const def: FeatureConfig = {
+          apiKey: data.settings.llm_api_key.value,
+          model: data.settings.llm_model.value,
+          baseUrl: data.settings.llm_base_url.value,
+        };
+
+        // Per-feature configs from data.featureConfigs or fallback to default
+        const fc = data.featureConfigs || {};
+        setFeatureConfigs({
+          default: { apiKey: def.apiKey, model: def.model, baseUrl: def.baseUrl },
+          photo: fc.photo ? { apiKey: fc.photo.apiKey || "", model: fc.photo.model || "", baseUrl: fc.photo.baseUrl || "" } : { apiKey: "", model: "", baseUrl: "" },
+          summary: fc.summary ? { apiKey: fc.summary.apiKey || "", model: fc.summary.model || "", baseUrl: fc.summary.baseUrl || "" } : { apiKey: "", model: "", baseUrl: "" },
+        });
       }
-    } catch {
-      // ignore
-    } finally {
-      setLoading(false);
-    }
+    } catch {} finally { setLoading(false); }
   }, []);
 
-  useEffect(() => {
-    fetchSettings();
-  }, [fetchSettings]);
-
-  const handlePresetChange = (idx: number) => {
-    setSelectedPreset(idx);
-    const preset = PRESET_MODELS[idx];
-    if (preset.model) {
-      setModel(preset.model);
-      setBaseUrl(preset.baseUrl);
-    }
-  };
+  useEffect(() => { fetchSettings(); }, [fetchSettings]);
 
   const handleSave = async () => {
     setSaving(true);
     setSaveMsg(null);
     try {
+      // Build all settings: default + per-feature overrides
+      const body: Record<string, string> = {};
+      const dc = featureConfigs.default;
+      body.llm_api_key = dc.apiKey;
+      body.llm_model = dc.model;
+      body.llm_base_url = dc.baseUrl;
+
+      // Per-feature: only save if model is set (non-empty means user configured it)
+      for (const [feat, cfg] of Object.entries(featureConfigs)) {
+        if (feat === "default") continue;
+        if (cfg.model.trim()) {
+          body[`${feat}_model`] = cfg.model;
+          if (cfg.baseUrl.trim()) body[`${feat}_base_url`] = cfg.baseUrl;
+          if (cfg.apiKey.trim()) body[`${feat}_api_key`] = cfg.apiKey;
+        }
+      }
+
+      // Features toggle
+      body.features = JSON.stringify(
+        features ? Object.fromEntries(Object.entries(features).map(([k, v]) => [k, v.enabled])) : {}
+      );
+
       const res = await fetch("/api/settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          llm_api_key: apiKey,
-          llm_model: model,
-          llm_base_url: baseUrl,
-          features: features ? Object.fromEntries(
-            Object.entries(features).map(([k, v]) => [k, v.enabled])
-          ) : undefined,
-        }),
+        body: JSON.stringify(body),
       });
       const data = await res.json();
-      if (data.success) {
-        setSaveMsg("保存成功");
-        fetchSettings();
-      } else {
-        setSaveMsg(`保存失败: ${data.error}`);
-      }
-    } catch {
-      setSaveMsg("网络错误");
-    } finally {
-      setSaving(false);
-      setTimeout(() => setSaveMsg(null), 3000);
-    }
+      setSaveMsg(data.success ? "保存成功" : `保存失败: ${data.error}`);
+      if (data.success) fetchSettings();
+    } catch { setSaveMsg("网络错误"); }
+    setSaving(false);
+    setTimeout(() => setSaveMsg(null), 3000);
   };
 
-  const handleTest = async () => {
-    // 先保存再测试
-    setTesting(true);
-    setTestResult(null);
+  const handleTest = async (feature: string) => {
+    setTesting(feature);
+    setTestResults({ ...testResults, [feature]: null });
     try {
-      await fetch("/api/settings", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ llm_api_key: apiKey, llm_model: model, llm_base_url: baseUrl }),
-      });
-      const res = await fetch("/api/settings/test-connection", { method: "POST" });
+      await handleSave();
+      const res = await fetch(`/api/settings/test-connection?feature=${feature}`, { method: "POST" });
       const data = await res.json();
-      setTestResult(data);
+      setTestResults({ ...testResults, [feature]: data });
     } catch {
-      setTestResult({ ok: false, message: "网络错误" });
-    } finally {
-      setTesting(false);
+      setTestResults({ ...testResults, [feature]: { ok: false, message: "网络错误" } });
+    }
+    setTesting(null);
+  };
+
+  const updateConfig = (feature: string, field: keyof FeatureConfig, value: string) => {
+    setFeatureConfigs({
+      ...featureConfigs,
+      [feature]: { ...featureConfigs[feature], [field]: value },
+    });
+  };
+
+  const applyPreset = (feature: string, presetIdx: number) => {
+    const group = FEATURES_META.find((f) => f.key === feature)?.presetGroup || "text";
+    const presets = PRESET_MODELS[group as keyof typeof PRESET_MODELS];
+    if (presetIdx < presets.length - 1) {
+      updateConfig(feature, "model", presets[presetIdx].model);
+      updateConfig(feature, "baseUrl", presets[presetIdx].baseUrl);
     }
   };
 
   if (loading) {
-    return (
-      <div className="p-8">
-        <div className="animate-pulse text-sm" style={{ color: "var(--muted)" }}>
-          加载中...
-        </div>
-      </div>
-    );
+    return <div className="p-8 animate-pulse text-sm" style={{ color: "var(--muted)" }}>加载中...</div>;
   }
+
+  const currentConfig = featureConfigs[activeTab] || featureConfigs.default;
+  const currentMeta = FEATURES_META.find((f) => f.key === activeTab)!;
+  const currentPresets = PRESET_MODELS[currentMeta.presetGroup as keyof typeof PRESET_MODELS];
+  const currentTest = testResults[activeTab];
 
   return (
     <div className="p-8 max-w-3xl">
-      {/* 标题 */}
-      <div className="mb-8">
+      {/* Title */}
+      <div className="mb-6">
         <h1 className="text-xl font-bold text-white">系统设置</h1>
-        <p className="text-sm mt-1" style={{ color: "var(--muted)" }}>
-          配置 LLM 模型参数，用于智能拆解和 AI 复核功能
-        </p>
+        <p className="text-sm mt-1" style={{ color: "var(--muted)" }}>不同 AI 功能可配置不同模型，灵活搭配最优性价比</p>
       </div>
 
-      {/* 当前状态卡片 */}
-      {settings && (
-        <div
-          className="mb-6 p-4 rounded-xl"
-          style={{ background: "var(--surface)", border: "1px solid var(--border)" }}
-        >
-          <div className="flex items-center gap-2 mb-3">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2">
-              <circle cx="12" cy="12" r="10" />
-              <path d="M12 16v-4M12 8h.01" />
-            </svg>
-            <span className="text-sm font-medium text-white">当前配置</span>
-          </div>
-          <div className="grid grid-cols-3 gap-4 text-xs">
-            <div>
-              <div style={{ color: "var(--muted)" }}>模型</div>
-              <div className="font-mono text-white mt-0.5">
-                {settings.llm_model.value || "未配置"}
-              </div>
-            </div>
-            <div>
-              <div style={{ color: "var(--muted)" }}>API 地址</div>
-              <div className="font-mono text-white mt-0.5 truncate" title={settings.llm_base_url.value}>
-                {settings.llm_base_url.value || "未配置"}
-              </div>
-            </div>
-            <div>
-              <div style={{ color: "var(--muted)" }}>API Key</div>
-              <div className="font-mono text-white mt-0.5">
-                {settings.llm_api_key.value || "未配置"}
-              </div>
-            </div>
-          </div>
-          <div className="mt-2 text-[11px]" style={{ color: "var(--muted)" }}>
-            配置来源：
-            {settings.llm_model.source === "db" ? "数据库（手动设置）" : "环境变量（.env）"}
-          </div>
-        </div>
-      )}
-
-      {/* 预设模型选择 */}
-      <div
-        className="mb-6 p-5 rounded-xl"
-        style={{ background: "var(--surface)", border: "1px solid var(--border)" }}
-      >
-        <label className="block text-sm font-medium text-white mb-3">快捷预设</label>
-        <div className="grid grid-cols-4 gap-2">
-          {PRESET_MODELS.map((preset, idx) => (
-            <button
-              key={idx}
-              onClick={() => handlePresetChange(idx)}
-              className="px-3 py-2 rounded-lg text-xs transition-all"
-              style={{
-                background: selectedPreset === idx ? "rgba(59,130,246,0.15)" : "transparent",
-                border:
-                  selectedPreset === idx
-                    ? "1px solid rgba(59,130,246,0.4)"
-                    : "1px solid var(--border)",
-                color: selectedPreset === idx ? "white" : "var(--muted)",
-              }}
-            >
-              {preset.name}
-            </button>
-          ))}
-        </div>
+      {/* Model Tabs */}
+      <div className="flex gap-1 p-1 rounded-lg mb-6" style={{ background: "var(--bg)" }}>
+        {FEATURES_META.map((f) => (
+          <button key={f.key} onClick={() => setActiveTab(f.key)}
+            className="flex-1 text-xs py-2 rounded-md font-medium transition-all"
+            style={{
+              background: activeTab === f.key ? "var(--surface)" : "transparent",
+              color: activeTab === f.key ? "white" : "var(--muted)",
+              boxShadow: activeTab === f.key ? "0 1px 3px rgba(0,0,0,0.2)" : "none",
+            }}>
+            <div>{f.label}</div>
+            <div className="text-[9px] mt-0.5 opacity-60">{f.desc}</div>
+          </button>
+        ))}
       </div>
 
-      {/* 表单 */}
-      <div
-        className="p-5 rounded-xl space-y-5"
-        style={{ background: "var(--surface)", border: "1px solid var(--border)" }}
-      >
+      {/* Config Panel */}
+      <div className="p-5 rounded-xl space-y-4" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+        <div className="flex items-center justify-between">
+          <span className="text-sm font-semibold text-white">{currentMeta.label}配置</span>
+          {activeTab !== "default" && (
+            <span className="text-[10px] px-2 py-0.5 rounded-full" style={{ background: "var(--bg)", color: "var(--muted)" }}>
+              留空则使用默认模型
+            </span>
+          )}
+        </div>
+
+        {/* Presets */}
+        <div>
+          <div className="text-xs mb-2" style={{ color: "var(--muted)" }}>快捷预设</div>
+          <div className="grid grid-cols-4 gap-2">
+            {currentPresets.map((preset, idx) => (
+              <button key={idx}
+                onClick={() => applyPreset(activeTab, idx)}
+                className="px-3 py-2 rounded-lg text-xs transition-all"
+                style={{
+                  background: currentConfig.model === preset.model && preset.model ? "rgba(59,130,246,0.15)" : "transparent",
+                  border: `1px solid ${currentConfig.model === preset.model && preset.model ? "rgba(59,130,246,0.4)" : "var(--border)"}`,
+                  color: currentConfig.model === preset.model && preset.model ? "white" : "var(--muted)",
+                }}>
+                {preset.name}
+              </button>
+            ))}
+          </div>
+        </div>
+
         {/* API Key */}
         <div>
-          <label className="block text-sm font-medium text-white mb-1.5">
-            API Key
-          </label>
-          <input
-            type="password"
-            value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-            placeholder="sk-..."
+          <div className="text-xs mb-1.5" style={{ color: "var(--muted)" }}>API Key</div>
+          <input type="password" value={currentConfig.apiKey}
+            onChange={(e) => updateConfig(activeTab, "apiKey", e.target.value)} placeholder={activeTab === "default" ? "sk-..." : "留空使用默认 Key"}
             className="w-full px-4 py-2.5 rounded-lg text-sm font-mono"
-            style={{
-              background: "rgba(0,0,0,0.3)",
-              border: "1px solid var(--border)",
-              color: "white",
-            }}
-          />
-          <p className="text-[11px] mt-1" style={{ color: "var(--muted)" }}>
-            {settings?.llm_api_key.masked
-              ? "已保存的 Key 已脱敏显示，输入新值将覆盖"
-              : "从模型服务商获取的 API 密钥"}
-          </p>
+            style={{ background: "rgba(0,0,0,0.3)", border: "1px solid var(--border)", color: "white" }} />
         </div>
 
-        {/* 模型名称 */}
+        {/* Model */}
         <div>
-          <label className="block text-sm font-medium text-white mb-1.5">
-            模型名称
-          </label>
-          <input
-            type="text"
-            value={model}
-            onChange={(e) => {
-              setModel(e.target.value);
-              setSelectedPreset(PRESET_MODELS.length - 1);
-            }}
-            placeholder="MiniMax-M2.7"
+          <div className="text-xs mb-1.5" style={{ color: "var(--muted)" }}>模型名称</div>
+          <input type="text" value={currentConfig.model}
+            onChange={(e) => updateConfig(activeTab, "model", e.target.value)}
+            placeholder={activeTab === "default" ? "MiniMax-M2.7" : "留空使用默认模型"}
             className="w-full px-4 py-2.5 rounded-lg text-sm font-mono"
-            style={{
-              background: "rgba(0,0,0,0.3)",
-              border: "1px solid var(--border)",
-              color: "white",
-            }}
-          />
+            style={{ background: "rgba(0,0,0,0.3)", border: "1px solid var(--border)", color: "white" }} />
         </div>
 
-        {/* API 地址 */}
+        {/* Base URL */}
         <div>
-          <label className="block text-sm font-medium text-white mb-1.5">
-            API 地址
-          </label>
-          <input
-            type="text"
-            value={baseUrl}
-            onChange={(e) => {
-              setBaseUrl(e.target.value);
-              setSelectedPreset(PRESET_MODELS.length - 1);
-            }}
+          <div className="text-xs mb-1.5" style={{ color: "var(--muted)" }}>API 地址</div>
+          <input type="text" value={currentConfig.baseUrl}
+            onChange={(e) => updateConfig(activeTab, "baseUrl", e.target.value)}
             placeholder="https://api.minimaxi.com/v1"
             className="w-full px-4 py-2.5 rounded-lg text-sm font-mono"
-            style={{
-              background: "rgba(0,0,0,0.3)",
-              border: "1px solid var(--border)",
-              color: "white",
-            }}
-          />
-          <p className="text-[11px] mt-1" style={{ color: "var(--muted)" }}>
-            OpenAI 兼容格式的 API 基础地址（不含 /chat/completions）
-          </p>
+            style={{ background: "rgba(0,0,0,0.3)", border: "1px solid var(--border)", color: "white" }} />
+          <div className="text-[10px] mt-1" style={{ color: "rgba(148,163,184,0.5)" }}>OpenAI 兼容格式（不含 /chat/completions）</div>
         </div>
-      </div>
 
-      {/* 操作按钮 */}
-      <div className="mt-6 flex items-center gap-3">
-        <button
-          onClick={handleSave}
-          disabled={saving || !model || !baseUrl}
-          className="px-6 py-2.5 rounded-lg text-sm font-medium text-white transition-all"
-          style={{
-            background: saving
-              ? "rgba(59,130,246,0.4)"
-              : "linear-gradient(135deg, #3b82f6, #2563eb)",
-            boxShadow: saving ? "none" : "0 0 20px rgba(59,130,246,0.25)",
-          }}
-        >
-          {saving ? "保存中..." : "保存设置"}
-        </button>
-
-        <button
-          onClick={handleTest}
-          disabled={testing || !model || !baseUrl}
-          className="px-6 py-2.5 rounded-lg text-sm font-medium transition-all"
-          style={{
-            background: "transparent",
-            border: "1px solid var(--border)",
-            color: testing ? "var(--muted)" : "var(--accent)",
-          }}
-        >
-          {testing ? "测试中..." : "测试连接"}
-        </button>
-
-        {saveMsg && (
-          <span
-            className="text-sm"
+        {/* Test result */}
+        {currentTest && (
+          <div className="p-3 rounded-lg text-xs"
             style={{
-              color: saveMsg.includes("成功") ? "var(--green, #10b981)" : "#f87171",
-            }}
-          >
-            {saveMsg}
-          </span>
+              background: currentTest.ok ? "rgba(16,185,129,0.08)" : "rgba(239,68,68,0.08)",
+              border: `1px solid ${currentTest.ok ? "rgba(16,185,129,0.3)" : "rgba(239,68,68,0.3)"}`,
+              color: currentTest.ok ? "#34d399" : "#f87171",
+            }}>
+            {currentTest.message}
+          </div>
         )}
       </div>
 
-      {/* 测试结果 */}
-      {testResult && (
-        <div
-          className="mt-4 p-4 rounded-xl text-sm"
-          style={{
-            background: testResult.ok ? "rgba(16,185,129,0.08)" : "rgba(239,68,68,0.08)",
-            border: `1px solid ${testResult.ok ? "rgba(16,185,129,0.3)" : "rgba(239,68,68,0.3)"}`,
-            color: testResult.ok ? "#34d399" : "#f87171",
-          }}
-        >
-          <div className="flex items-start gap-2">
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              className="shrink-0 mt-0.5"
-            >
-              {testResult.ok ? (
-                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-              ) : (
-                <circle cx="12" cy="12" r="10" />
-              )}
-              {testResult.ok ? (
-                <polyline points="22 4 12 14.01 9 11.01" />
-              ) : (
-                <>
-                  <line x1="15" y1="9" x2="9" y2="15" />
-                  <line x1="9" y1="9" x2="15" y2="15" />
-                </>
-              )}
-            </svg>
-            <div>
-              <div className="font-medium">{testResult.ok ? "连接成功" : "连接失败"}</div>
-              <div className="mt-0.5" style={{ color: "var(--muted)" }}>
-                {testResult.message}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Action buttons */}
+      <div className="mt-6 flex items-center gap-3">
+        <button onClick={() => handleSave()} disabled={saving}
+          className="px-6 py-2.5 rounded-lg text-sm font-medium text-white"
+          style={{ background: saving ? "rgba(59,130,246,0.4)" : "linear-gradient(135deg, #3b82f6, #2563eb)", boxShadow: saving ? "none" : "0 0 20px rgba(59,130,246,0.25)" }}>
+          {saving ? "保存中..." : "保存所有配置"}
+        </button>
+        <button onClick={() => handleTest(activeTab)} disabled={testing === activeTab}
+          className="px-6 py-2.5 rounded-lg text-sm"
+          style={{ background: "transparent", border: "1px solid var(--border)", color: testing === activeTab ? "var(--muted)" : "var(--accent)" }}>
+          {testing === activeTab ? "测试中..." : `测试${currentMeta.label}`}
+        </button>
+        {saveMsg && (
+          <span className="text-sm" style={{ color: saveMsg.includes("成功") ? "var(--green, #10b981)" : "#f87171" }}>{saveMsg}</span>
+        )}
+      </div>
 
       {/* Feature Toggles */}
-      <div className="mt-8">
+      <div className="mt-10">
         <h2 className="text-lg font-bold text-white mb-1">功能开关</h2>
-        <p className="text-xs mb-4" style={{ color: "var(--muted)" }}>按需启用高级 AI 功能（消耗 LLM 配额）</p>
-
+        <p className="text-xs mb-4" style={{ color: "var(--muted)" }}>按需启用高级 AI 功能（消耗对应模型配额）</p>
         <div className="space-y-3">
           {features && Object.entries(features).map(([key, val]) => (
             <div key={key} className="p-4 rounded-xl flex items-center justify-between"
@@ -391,22 +292,12 @@ export default function SettingsPage() {
               <div>
                 <div className="text-sm font-medium text-white">{val.label}</div>
                 <div className="text-[11px] mt-0.5" style={{ color: "var(--muted)" }}>
-                  {key === "feature_photo_review"
-                    ? "开启后，工人上传的施工照片将自动由 AI 分析复核（需多模态模型支持）"
-                    : ""}
+                  {key === "feature_photo_review" ? "开启后，施工照片将自动由视觉模型分析复核" : ""}
                 </div>
               </div>
-              <button
-                onClick={() => {
-                  setFeatures({
-                    ...features,
-                    [key]: { ...val, enabled: !val.enabled },
-                  });
-                }}
+              <button onClick={() => setFeatures({ ...features, [key]: { ...val, enabled: !val.enabled } })}
                 className="relative w-11 h-6 rounded-full transition-all"
-                style={{
-                  background: val.enabled ? "var(--accent)" : "var(--border)",
-                }}>
+                style={{ background: val.enabled ? "var(--accent)" : "var(--border)" }}>
                 <div className="absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all"
                   style={{ left: val.enabled ? "22px" : "2px" }} />
               </button>

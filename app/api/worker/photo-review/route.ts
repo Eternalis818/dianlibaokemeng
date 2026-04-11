@@ -96,6 +96,7 @@ ${photoDescription ? `\n现场照片描述：${photoDescription}` : ""}
       aiContent = await chatCompletion(
         [{ role: "user", content: REVIEW_PROMPT }],
         { maxTokens: 1200, temperature: 0.2 },
+        "photo" // 照片复核用视觉模型
       );
     } catch (e) {
       const msg = e instanceof Error ? e.message : "unknown";

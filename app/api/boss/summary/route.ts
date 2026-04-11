@@ -87,6 +87,7 @@ export async function POST(req: NextRequest) {
           { role: "user", content: dataContext },
         ],
         { maxTokens: 300, temperature: 0.6 },
+        "summary" // Boss 摘要用摘要模型
       );
       // Record AI usage after successful call
       if (bossId > 0) {
