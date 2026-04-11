@@ -11,6 +11,14 @@ const WORKER_PATHS = [
   "/api/upload",
   "/api/auth/admin",
   "/api/boss/auth", // boss login/logout
+  "/api/plans",     // plan listing (public)
+];
+
+// Boss paths that don't require active subscription
+const BOSS_NO_SUBSCRIPTION_CHECK = [
+  "/api/boss/auth",
+  "/api/boss/subscription",
+  "/api/boss/subscribe",
 ];
 
 export function middleware(req: NextRequest) {
@@ -32,6 +40,16 @@ export function middleware(req: NextRequest) {
     const secret = process.env.ADMIN_SECRET;
     if (!token || !secret || !token.startsWith("boss:") || !token.endsWith(`:${secret}`)) {
       return NextResponse.json({ error: "请先登录" }, { status: 401 });
+    }
+
+    // Extract bossId from token for downstream use
+    const bossIdMatch = token.match(/^boss:(\d+):/);
+    if (bossIdMatch) {
+      const requestHeaders = new Headers(req.headers);
+      requestHeaders.set("x-boss-id", bossIdMatch[1]);
+      return NextResponse.next({
+        request: { headers: requestHeaders },
+      });
     }
     return NextResponse.next();
   }

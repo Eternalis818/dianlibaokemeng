@@ -2,12 +2,32 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { rateLimit } from "@/lib/rate-limit";
 import { chatCompletion } from "@/lib/llm";
+import { checkQuota, recordUsage } from "@/lib/ai-quota";
 
 export async function POST(req: NextRequest) {
   // Rate limit — 5 req/min per IP
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "unknown";
   if (!rateLimit(ip, 5, 60_000)) {
     return Response.json({ content: "请求过于频繁，请稍后再试" }, { status: 429 });
+  }
+
+  // Extract bossId from cookie
+  const token = req.cookies.get("pl_boss")?.value || "";
+  const bossIdMatch = token.match(/^boss:(\d+):/);
+  const bossId = bossIdMatch ? parseInt(bossIdMatch[1]) : 0;
+
+  // AI quota check
+  if (bossId > 0) {
+    const quota = await checkQuota(bossId, "boss_summary");
+    if (!quota.allowed) {
+      return Response.json({
+        content: quota.limit === -1
+          ? "AI 按量计费额度确认中，请联系管理员"
+          : `本月 AI 汇总已使用 ${quota.used}/${quota.limit} 次，升级旗舰版获取更多额度。`,
+        upgradeNeeded: true,
+        quota,
+      }, { status: 200 });
+    }
   }
 
   try {
@@ -68,6 +88,10 @@ export async function POST(req: NextRequest) {
         ],
         { maxTokens: 300, temperature: 0.6 },
       );
+      // Record AI usage after successful call
+      if (bossId > 0) {
+        await recordUsage(bossId, "boss_summary");
+      }
     } catch {
       return Response.json({ content: "AI 服务暂时不可用，请稍后重试。" }, { status: 200 });
     }

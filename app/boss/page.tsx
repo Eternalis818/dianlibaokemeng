@@ -948,6 +948,11 @@ export default function BossPage() {
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [agentOpen, setAgentOpen] = useState(false);
   const [pnlData, setPnlData] = useState<PnlData | null>(null);
+  const [subscription, setSubscription] = useState<{
+    status: string; isActive: boolean; daysRemaining: number | null;
+    plan: { code: string; name: string; aiQuota: number };
+    ai: { used: number; limit: number; remaining: number };
+  } | null>(null);
 
   // 恢复会话
   useEffect(() => {
@@ -968,13 +973,14 @@ export default function BossPage() {
 
   const fetchAll = useCallback(async () => {
     try {
-      const [r, v, c, ci, w, pnl] = await Promise.all([
+      const [r, v, c, ci, w, pnl, subRes] = await Promise.all([
         fetch("/api/reports").then((res) => res.json()),
         fetch("/api/visas").then((res) => res.json()),
         fetch("/api/corrections").then((res) => res.json()),
         fetch("/api/checkin").then((res) => res.json()),
         fetch("/api/workers").then((res) => res.json()),
         fetch("/api/boss/visa-pnl").then((res) => res.json()),
+        fetch("/api/boss/subscription").then((res) => res.json()),
       ]);
       setReports(Array.isArray(r) ? r : []);
       setVisas(Array.isArray(v) ? v : []);
@@ -982,6 +988,7 @@ export default function BossPage() {
       setCheckIns(Array.isArray(ci) ? ci : []);
       setWorkers(Array.isArray(w) ? w : []);
       if (pnl && pnl.totals) setPnlData(pnl);
+      if (subRes && subRes.subscription) setSubscription(subRes.subscription);
       setLastUpdated(new Date());
     } catch (err) {
       console.error("Boss page fetch error:", err);
@@ -1062,6 +1069,23 @@ export default function BossPage() {
           </div>
         </div>
         <div className="flex items-center gap-3">
+          {/* 订阅状态徽章 */}
+          {subscription && (
+            <div
+              className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full font-medium cursor-pointer"
+              style={{
+                background: subscription.isActive ? "rgba(16,185,129,0.12)" : "rgba(239,68,68,0.12)",
+                color: subscription.isActive ? "var(--green)" : "#f87171",
+                border: `1px solid ${subscription.isActive ? "rgba(16,185,129,0.25)" : "rgba(239,68,68,0.25)"}`,
+              }}
+            >
+              <span className="w-1.5 h-1.5 rounded-full" style={{ background: subscription.isActive ? "var(--green)" : "#f87171" }} />
+              {subscription.plan.name}
+              {subscription.daysRemaining !== null && (
+                <span className="font-mono opacity-70">{subscription.daysRemaining}天</span>
+              )}
+            </div>
+          )}
           {loading && (
             <div className="w-4 h-4 rounded-full border-2 animate-spin" style={{ borderColor: "var(--accent)", borderTopColor: "transparent" }} />
           )}
