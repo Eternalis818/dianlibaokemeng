@@ -5,10 +5,18 @@ import { prisma } from "@/lib/prisma";
 const LLM_KEYS = ["llm_api_key", "llm_model", "llm_base_url"] as const;
 type LLMKey = (typeof LLM_KEYS)[number];
 
+// Feature toggle keys
+const FEATURE_KEYS = ["feature_photo_review"] as const;
+type FeatureKey = (typeof FEATURE_KEYS)[number];
+
 const KEY_TO_LABEL: Record<LLMKey, string> = {
   llm_api_key: "API Key",
   llm_model: "模型名称",
   llm_base_url: "API 地址",
+};
+
+const FEATURE_LABELS: Record<FeatureKey, string> = {
+  feature_photo_review: "AI 照片复核",
 };
 
 // 默认值：从 .env 环境变量读取
@@ -20,11 +28,12 @@ function defaults(): Record<LLMKey, string> {
   };
 }
 
-/** GET /api/settings — 读取 LLM 设置 */
+/** GET /api/settings — 读取 LLM 设置 + Feature 开关 */
 export async function GET() {
   try {
+    const allKeys = [...LLM_KEYS, ...FEATURE_KEYS];
     const rows = await prisma.$queryRawUnsafe<{ key: string; value: string }[]>(
-      `SELECT "key", "value" FROM "Settings" WHERE "key" IN (${LLM_KEYS.map((k) => `'${k}'`).join(", ")})`
+      `SELECT "key", "value" FROM "Settings" WHERE "key" IN (${allKeys.map((k) => `'${k}'`).join(", ")})`
     );
     const dbMap = Object.fromEntries(rows.map((r) => [r.key, r.value]));
     const def = defaults();
@@ -46,14 +55,23 @@ export async function GET() {
       result.llm_api_key.masked = true;
     }
 
-    return Response.json({ success: true, settings: result });
+    // Feature toggles
+    const features: Record<string, { label: string; enabled: boolean }> = {};
+    for (const key of FEATURE_KEYS) {
+      features[key] = {
+        label: FEATURE_LABELS[key],
+        enabled: dbMap[key] === "on",
+      };
+    }
+
+    return Response.json({ success: true, settings: result, features });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "unknown";
     return Response.json({ error: msg }, { status: 500 });
   }
 }
 
-/** PUT /api/settings — 保存 LLM 设置 */
+/** PUT /api/settings — 保存 LLM 设置 + Feature 开关 */
 export async function PUT(req: NextRequest) {
   try {
     const body = await req.json();
@@ -75,9 +93,18 @@ export async function PUT(req: NextRequest) {
       );
     }
 
-    // 同时写入 .env 文件（这样 Next.js 重启后环境变量也生效）
-    // 注意：这里只是更新运行时环境变量，不直接写 .env 文件
-    // 因为 lib/llm.ts 会在运行时优先读 Settings 表
+    // Feature toggles
+    const features = body.features as Record<string, boolean> | undefined;
+    if (features) {
+      for (const [key, enabled] of Object.entries(features)) {
+        await prisma.$executeRawUnsafe(
+          `INSERT INTO "Settings" ("key", "value", "updatedAt")
+           VALUES ('${key}', '${enabled ? "on" : "off"}', NOW())
+           ON CONFLICT ("key") DO UPDATE SET "value" = EXCLUDED."value", "updatedAt" = EXCLUDED."updatedAt"`
+        );
+      }
+    }
+
     return Response.json({ success: true });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "unknown";

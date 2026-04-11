@@ -14,6 +14,10 @@ interface Settings {
   llm_base_url: SettingItem;
 }
 
+interface Features {
+  feature_photo_review: { label: string; enabled: boolean };
+}
+
 const PRESET_MODELS = [
   { name: "MiniMax M2.7", model: "MiniMax-M2.7", baseUrl: "https://api.minimaxi.com/v1" },
   { name: "DeepSeek V3", model: "deepseek-chat", baseUrl: "https://api.deepseek.com/v1" },
@@ -26,6 +30,7 @@ const PRESET_MODELS = [
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<Settings | null>(null);
+  const [features, setFeatures] = useState<Features | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -44,6 +49,7 @@ export default function SettingsPage() {
       const data = await res.json();
       if (data.success) {
         setSettings(data.settings);
+        if (data.features) setFeatures(data.features);
         setApiKey(data.settings.llm_api_key.value);
         setModel(data.settings.llm_model.value);
         setBaseUrl(data.settings.llm_base_url.value);
@@ -84,6 +90,9 @@ export default function SettingsPage() {
           llm_api_key: apiKey,
           llm_model: model,
           llm_base_url: baseUrl,
+          features: features ? Object.fromEntries(
+            Object.entries(features).map(([k, v]) => [k, v.enabled])
+          ) : undefined,
         }),
       });
       const data = await res.json();
@@ -369,6 +378,42 @@ export default function SettingsPage() {
           </div>
         </div>
       )}
+
+      {/* Feature Toggles */}
+      <div className="mt-8">
+        <h2 className="text-lg font-bold text-white mb-1">功能开关</h2>
+        <p className="text-xs mb-4" style={{ color: "var(--muted)" }}>按需启用高级 AI 功能（消耗 LLM 配额）</p>
+
+        <div className="space-y-3">
+          {features && Object.entries(features).map(([key, val]) => (
+            <div key={key} className="p-4 rounded-xl flex items-center justify-between"
+              style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+              <div>
+                <div className="text-sm font-medium text-white">{val.label}</div>
+                <div className="text-[11px] mt-0.5" style={{ color: "var(--muted)" }}>
+                  {key === "feature_photo_review"
+                    ? "开启后，工人上传的施工照片将自动由 AI 分析复核（需多模态模型支持）"
+                    : ""}
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setFeatures({
+                    ...features,
+                    [key]: { ...val, enabled: !val.enabled },
+                  });
+                }}
+                className="relative w-11 h-6 rounded-full transition-all"
+                style={{
+                  background: val.enabled ? "var(--accent)" : "var(--border)",
+                }}>
+                <div className="absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all"
+                  style={{ left: val.enabled ? "22px" : "2px" }} />
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }

@@ -1,6 +1,19 @@
 import { NextRequest } from "next/server";
 import { rateLimit } from "@/lib/rate-limit";
 import { chatCompletion } from "@/lib/llm";
+import { prisma } from "@/lib/prisma";
+
+/** Check if photo review feature is enabled */
+async function isPhotoReviewEnabled(): Promise<boolean> {
+  try {
+    const rows = await prisma.$queryRawUnsafe<{ value: string }[]>(
+      `SELECT value FROM "Settings" WHERE key = 'feature_photo_review'`
+    );
+    return rows.length > 0 && rows[0].value === "on";
+  } catch {
+    return false;
+  }
+}
 
 /**
  * POST /api/worker/photo-review
@@ -15,6 +28,15 @@ import { chatCompletion } from "@/lib/llm";
  */
 
 export async function POST(req: NextRequest) {
+  // Feature gate: check if photo review is enabled
+  if (!(await isPhotoReviewEnabled())) {
+    return Response.json({
+      success: false,
+      error: "AI 照片复核功能未启用，请在管理后台设置页开启（专业版及以上）",
+      code: "FEATURE_DISABLED",
+    }, { status: 403 });
+  }
+
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "unknown";
   if (!rateLimit(ip, 10, 60_000)) {
     return Response.json({ success: false, error: "请求过于频繁" }, { status: 429 });

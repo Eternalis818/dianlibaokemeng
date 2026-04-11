@@ -177,17 +177,21 @@ export default function ReportsPage() {
 
                   {/* Photos */}
                   {r.photoUrls.length > 0 && (
-                    <button
-                      onClick={() => setPhotoUrls(r.photoUrls)}
-                      className="flex items-center gap-1.5 mb-4 text-xs transition-all"
-                      style={{ color: "var(--accent)" }}
-                    >
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                        <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
-                        <circle cx="12" cy="13" r="4" />
-                      </svg>
-                      查看 {r.photoUrls.length} 张照片
-                    </button>
+                    <div className="flex gap-2 mb-4 overflow-x-auto">
+                      {r.photoUrls.slice(0, 4).map((url, i) => (
+                        <img key={i} src={url} alt={`照片${i + 1}`}
+                          onClick={() => setPhotoUrls(r.photoUrls)}
+                          className="w-16 h-16 object-cover rounded-lg shrink-0 cursor-pointer hover:brightness-110 transition-all"
+                          style={{ border: "1px solid var(--border)" }} />
+                      ))}
+                      {r.photoUrls.length > 4 && (
+                        <button onClick={() => setPhotoUrls(r.photoUrls)}
+                          className="w-16 h-16 rounded-lg shrink-0 flex items-center justify-center text-xs font-medium"
+                          style={{ background: "var(--bg)", border: "1px solid var(--border)", color: "var(--muted)" }}>
+                          +{r.photoUrls.length - 4}
+                        </button>
+                      )}
+                    </div>
                   )}
 
                   {/* GPS */}

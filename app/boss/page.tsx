@@ -33,6 +33,7 @@ interface Report {
   spec: string;
   qty: string;
   photoPath?: string | null;
+  photoUrls?: string[];
   status: Status;
   createdAt: string;
 }
@@ -301,15 +302,13 @@ function ReportsTab({
                     </div>
                   ))}
                 </div>
-                {r.photoPath && (
-                  <div className="mb-3">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={r.photoPath}
-                      alt="现场照片"
-                      className="w-full h-32 object-cover rounded-xl"
-                      style={{ border: "1px solid var(--border)" }}
-                    />
+                {(r.photoUrls && r.photoUrls.length > 0 ? r.photoUrls : r.photoPath ? [r.photoPath] : []).length > 0 && (
+                  <div className="mb-3 flex gap-2 overflow-x-auto">
+                    {(r.photoUrls && r.photoUrls.length > 0 ? r.photoUrls : [r.photoPath!]).map((url, i) => (
+                      <img key={i} src={url} alt={`现场照片${i + 1}`}
+                        className="w-24 h-24 object-cover rounded-lg shrink-0"
+                        style={{ border: "1px solid var(--border)" }} />
+                    ))}
                   </div>
                 )}
                 <div className="flex gap-2">
