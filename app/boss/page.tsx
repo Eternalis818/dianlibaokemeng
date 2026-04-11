@@ -1,8 +1,19 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
+import BossLogin from "./components/BossLogin";
+import AccountingTab from "./components/AccountingTab";
+import QuantitiesTab from "./components/QuantitiesTab";
 
-type Tab = "board" | "reports" | "visas" | "corrections";
+type Tab = "board" | "work" | "visas" | "accounting" | "quantities";
 type Status = "pending" | "approved" | "rejected";
+
+interface BossProfile {
+  id: number;
+  name: string;
+  phone: string;
+  project: string | null;
+  role: string;
+}
 
 interface CheckIn {
   id: number;
@@ -55,7 +66,7 @@ interface WorkerRecord {
   project: string;
 }
 
-const BOSS = { name: "陈总", project: "汇龙配电所改造", role: "分包负责人" };
+const EXPENSE_CATEGORIES = ["工资", "材料费", "房租", "水电", "挂靠费", "茶水费", "其他"] as const;
 
 function fmtTime(iso: string) {
   const d = new Date(iso);
@@ -816,49 +827,59 @@ const TABS: {
     id: "board",
     label: "看板",
     icon: (
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
         <rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" />
         <rect x="3" y="14" width="7" height="7" /><rect x="14" y="14" width="7" height="7" />
       </svg>
     ),
   },
   {
-    id: "reports",
-    label: "报量",
+    id: "work",
+    label: "施工",
     icon: (
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
         <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
         <polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" />
-        <line x1="16" y1="17" x2="8" y2="17" /><polyline points="10 9 9 9 8 9" />
+        <line x1="16" y1="17" x2="8" y2="17" />
       </svg>
     ),
-    badge: (r) => r.filter((x) => x.status === "pending").length,
+    badge: (r, _v, c) => r.filter((x) => x.status === "pending").length + c.filter((x) => x.status === "pending").length,
   },
   {
     id: "visas",
     label: "签证",
     icon: (
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
         <path d="M9 11l3 3L22 4" /><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
       </svg>
     ),
     badge: (_r, v) => v.filter((x) => x.status === "pending").length,
   },
   {
-    id: "corrections",
-    label: "纠偏",
+    id: "accounting",
+    label: "记账",
     icon: (
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <line x1="12" y1="1" x2="12" y2="23" /><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
       </svg>
     ),
-    badge: (_r, _v, c) => c.filter((x) => x.status === "pending").length,
+  },
+  {
+    id: "quantities",
+    label: "量价",
+    icon: (
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <line x1="18" y1="20" x2="18" y2="10" /><line x1="12" y1="20" x2="12" y2="4" />
+        <line x1="6" y1="20" x2="6" y2="14" />
+      </svg>
+    ),
   },
 ];
 
 // ─── Main Boss Page ────────────────────────────────────────────────────────────
 export default function BossPage() {
+  const [boss, setBoss] = useState<BossProfile | null>(null);
+  const [authChecking, setAuthChecking] = useState(true);
   const [tab, setTab] = useState<Tab>("board");
   const [reports, setReports] = useState<Report[]>([]);
   const [visas, setVisas] = useState<Visa[]>([]);
@@ -868,6 +889,23 @@ export default function BossPage() {
   const [loading, setLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [agentOpen, setAgentOpen] = useState(false);
+
+  // 恢复会话
+  useEffect(() => {
+    try {
+      const cached = sessionStorage.getItem("boss_auth");
+      if (cached) setBoss(JSON.parse(cached));
+    } catch { /* ignore */ }
+    setAuthChecking(false);
+  }, []);
+
+  const handleLogin = (b: BossProfile) => setBoss(b);
+
+  const handleLogout = async () => {
+    sessionStorage.removeItem("boss_auth");
+    await fetch("/api/boss/auth", { method: "DELETE" }).catch(() => {});
+    setBoss(null);
+  };
 
   const fetchAll = useCallback(async () => {
     try {
@@ -941,6 +979,9 @@ export default function BossPage() {
     visas.filter((v) => v.status === "pending").length +
     corrections.filter((c) => c.status === "pending").length;
 
+  if (authChecking) return null;
+  if (!boss) return <BossLogin onLogin={handleLogin} />;
+
   return (
     <div className="min-h-[100dvh] flex flex-col" style={{ background: "var(--bg)" }}>
       {/* Header */}
@@ -949,12 +990,12 @@ export default function BossPage() {
         style={{ borderColor: "var(--border)", background: "var(--surface)" }}
       >
         <div>
-          <div className="font-semibold text-white text-sm">{BOSS.name}</div>
+          <div className="font-semibold text-white text-sm">{boss.name}</div>
           <div className="text-xs mt-0.5 flex items-center gap-1.5" style={{ color: "var(--muted)" }}>
-            {BOSS.project} · {BOSS.role}
+            {boss.project ?? "全部项目"} · {boss.role}
             {lastUpdated && (
               <span className="font-mono">
-                · {lastUpdated.getHours().toString().padStart(2, "0")}:{lastUpdated.getMinutes().toString().padStart(2, "0")} 更新
+                · {lastUpdated.getHours().toString().padStart(2, "0")}:{lastUpdated.getMinutes().toString().padStart(2, "0")}
               </span>
             )}
           </div>
@@ -972,7 +1013,6 @@ export default function BossPage() {
               {totalPending} 待处理
             </div>
           )}
-          {/* Agent button */}
           <button
             onClick={() => setAgentOpen(true)}
             className="w-9 h-9 rounded-xl flex items-center justify-center transition-all active:scale-90"
@@ -980,6 +1020,15 @@ export default function BossPage() {
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2">
               <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
+            </svg>
+          </button>
+          <button
+            onClick={handleLogout}
+            className="w-9 h-9 rounded-xl flex items-center justify-center transition-all active:scale-90"
+            style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.15)" }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><polyline points="16 17 21 12 16 7" /><line x1="21" y1="12" x2="9" y2="12" />
             </svg>
           </button>
         </div>
@@ -990,32 +1039,24 @@ export default function BossPage() {
         {tab === "board" && (
           <BoardTab checkIns={checkIns} reports={reports} visas={visas} corrections={corrections} workers={workers} />
         )}
-        {tab === "reports" && (
-          <ReportsTab
-            reports={reports}
-            onApprove={(id) => updateReport(id, "approved")}
-            onReject={(id) => updateReport(id, "rejected")}
-          />
+        {tab === "work" && (
+          <>
+            <ReportsTab reports={reports} onApprove={(id) => updateReport(id, "approved")} onReject={(id) => updateReport(id, "rejected")} />
+            {corrections.filter((c) => c.status === "pending").length > 0 && (
+              <CorrectionsTab corrections={corrections} onApprove={(id) => updateCorrection(id, "approved")} onReject={(id) => updateCorrection(id, "rejected")} />
+            )}
+          </>
         )}
         {tab === "visas" && (
-          <VisasTab
-            visas={visas}
-            onApprove={(id) => updateVisa(id, "approved")}
-            onReject={(id) => updateVisa(id, "rejected")}
-          />
+          <VisasTab visas={visas} onApprove={(id) => updateVisa(id, "approved")} onReject={(id) => updateVisa(id, "rejected")} />
         )}
-        {tab === "corrections" && (
-          <CorrectionsTab
-            corrections={corrections}
-            onApprove={(id) => updateCorrection(id, "approved")}
-            onReject={(id) => updateCorrection(id, "rejected")}
-          />
-        )}
+        {tab === "accounting" && <AccountingTab />}
+        {tab === "quantities" && <QuantitiesTab />}
       </div>
 
       {/* Tab Bar */}
       <div
-        className="shrink-0 border-t grid grid-cols-4"
+        className="shrink-0 border-t grid grid-cols-5"
         style={{ borderColor: "var(--border)", background: "var(--surface)" }}
       >
         {TABS.map((t) => {

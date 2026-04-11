@@ -10,6 +10,7 @@ const WORKER_PATHS = [
   "/api/worker/photo-review",
   "/api/upload",
   "/api/auth/admin",
+  "/api/boss/auth", // boss login/logout
 ];
 
 export function middleware(req: NextRequest) {
@@ -19,11 +20,21 @@ export function middleware(req: NextRequest) {
   // GET requests are public (read-only)
   if (method === "GET") return NextResponse.next();
 
-  // Worker-facing POST paths are exempt from admin auth
+  // Worker/boss-facing POST paths are exempt from admin auth
   const isWorkerPath = WORKER_PATHS.some(
     (p) => pathname === p || pathname.startsWith(p + "/")
   );
   if (isWorkerPath) return NextResponse.next();
+
+  // Boss API paths (except /auth) require boss cookie
+  if (pathname.startsWith("/api/boss/")) {
+    const token = req.cookies.get("pl_boss")?.value;
+    const secret = process.env.ADMIN_SECRET;
+    if (!token || !secret || !token.startsWith("boss:") || !token.endsWith(`:${secret}`)) {
+      return NextResponse.json({ error: "请先登录" }, { status: 401 });
+    }
+    return NextResponse.next();
+  }
 
   // All other write operations require admin cookie
   const token = req.cookies.get("pl_admin")?.value;
