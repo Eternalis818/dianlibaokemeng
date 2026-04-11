@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback } from "react";
 import BossLogin from "./components/BossLogin";
 import AccountingTab from "./components/AccountingTab";
 import QuantitiesTab from "./components/QuantitiesTab";
+import SubscribeSheet from "./components/SubscribeSheet";
 
 type Tab = "board" | "work" | "visas" | "accounting" | "quantities";
 type Status = "pending" | "approved" | "rejected";
@@ -948,6 +949,7 @@ export default function BossPage() {
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [agentOpen, setAgentOpen] = useState(false);
   const [pnlData, setPnlData] = useState<PnlData | null>(null);
+  const [subOpen, setSubOpen] = useState(false);
   const [subscription, setSubscription] = useState<{
     status: string; isActive: boolean; daysRemaining: number | null;
     plan: { code: string; name: string; aiQuota: number };
@@ -1072,7 +1074,8 @@ export default function BossPage() {
           {/* 订阅状态徽章 */}
           {subscription && (
             <div
-              className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full font-medium cursor-pointer"
+              className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full font-medium cursor-pointer active:scale-95 transition-all"
+              onClick={() => setSubOpen(true)}
               style={{
                 background: subscription.isActive ? "rgba(16,185,129,0.12)" : "rgba(239,68,68,0.12)",
                 color: subscription.isActive ? "var(--green)" : "#f87171",
@@ -1170,6 +1173,7 @@ export default function BossPage() {
       </div>
 
       <AgentPanel open={agentOpen} onClose={() => setAgentOpen(false)} />
+      <SubscribeSheet open={subOpen} onClose={() => setSubOpen(false)} />
     </div>
   );
 }

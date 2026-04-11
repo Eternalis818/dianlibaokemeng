@@ -180,6 +180,30 @@ export default function Sidebar() {
       <div className="px-3 pb-4 space-y-2">
         <div className="border-t mb-3" style={{ borderColor: "var(--border)" }} />
 
+        {/* 付款管理 */}
+        <Link
+          href="/payments"
+          className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all w-full"
+          style={{
+            background: pathname === "/payments" ? "rgba(59,130,246,0.12)" : "transparent",
+            color: pathname === "/payments" ? "white" : "var(--muted)",
+            borderLeft: pathname === "/payments" ? "2px solid var(--accent)" : "2px solid transparent",
+          }}
+        >
+          <svg
+            width="15"
+            height="15"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+          >
+            <rect x="1" y="4" width="22" height="16" rx="2" ry="2" /><line x1="1" y1="10" x2="23" y2="10" />
+          </svg>
+          <span>付款管理</span>
+        </Link>
+
         {/* 系统设置 */}
         <Link
           href="/settings"
