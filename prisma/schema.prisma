@@ -205,16 +205,28 @@ model MaterialLibrary {
 }
 
 model Material {
-  id          Int             @id @default(autoincrement())
-  libraryId   Int
-  library     MaterialLibrary @relation(fields: [libraryId], references: [id], onDelete: Cascade)
-  code        String          // 集团物料编码
-  name        String
-  unit        String
-  planQty     Float           @default(0)  // 图纸量
-  usedQty     Float           @default(0)  // 现场消耗量
-  unitCost    Float           @default(0)
-  updatedAt   DateTime        @default(now()) @updatedAt
+  id               Int             @id @default(autoincrement())
+  libraryId        Int
+  library          MaterialLibrary @relation(fields: [libraryId], references: [id], onDelete: Cascade)
+  code             String          // 物料编码
+  name             String
+  unit             String
+  spec             String          @default("")  // 规格型号
+  category         String          @default("")  // 分类标签
+  source           String          @default("warehouse") // warehouse | agreement
+  planQty          Float           @default(0)  // 图纸量
+  usedQty          Float           @default(0)  // 现场消耗量
+  stockQty         Float           @default(0)  // 库存数量
+  minStock         Float           @default(0)  // 库存下限
+  unitCost         Float           @default(0)  // 单价
+  warehouseLocation String         @default("")  // 货位
+  hazardous        Boolean         @default(false) // 危化品
+  supplier         String          @default("")  // 供应商
+  agreementNo      String          @default("")  // 协议号
+  validUntil       DateTime?       // 协议有效期
+  pinyin           String          @default("")  // 全拼
+  pinyinShort      String          @default("")  // 拼音首字母
+  updatedAt        DateTime        @default(now()) @updatedAt
 }
 
 // ─── 工器具年检管理 ───────────────────────────────────────────────────────────
