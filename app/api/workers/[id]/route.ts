@@ -11,6 +11,38 @@ export async function GET(
   return Response.json(worker);
 }
 
+export async function PATCH(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const { id } = await params;
+  try {
+    const body = await req.json();
+    const allowedFields = ["name", "phone", "idCard", "project", "wageType", "wageRate", "insuranceInfo", "loginPin"];
+    const updates: Record<string, unknown> = {};
+
+    for (const field of allowedFields) {
+      if (body[field] !== undefined) {
+        updates[field] = body[field];
+      }
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return Response.json({ error: "没有需要更新的字段" }, { status: 400 });
+    }
+
+    const worker = await prisma.worker.update({
+      where: { id },
+      data: updates,
+    });
+
+    return Response.json(worker);
+  } catch (e) {
+    console.error("worker patch error:", e);
+    return Response.json({ error: "更新失败" }, { status: 500 });
+  }
+}
+
 export async function DELETE(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
