@@ -5,13 +5,16 @@ import pg from "pg";
 const globalForPrisma = globalThis as unknown as { prisma: PrismaClient };
 
 function createPrismaClient() {
-  // Use Supabase pooler with SSL via node-postgres (Prisma Rust engine can't go through proxy)
+  const connectionString = process.env.DATABASE_URL;
+  if (!connectionString) throw new Error("DATABASE_URL environment variable is required");
+
+  const url = new URL(connectionString);
   const pool = new pg.Pool({
-    host: "aws-1-ap-southeast-1.pooler.supabase.com",
-    port: 6543,
-    database: "postgres",
-    user: "postgres.gzqazdrtkbspzrtvcsyb",
-    password: "Aawoaini2012@",
+    host: url.hostname,
+    port: parseInt(url.port) || 5432,
+    database: url.pathname.slice(1),
+    user: url.username,
+    password: url.password,
     ssl: { rejectUnauthorized: false },
     max: 5,
   });
