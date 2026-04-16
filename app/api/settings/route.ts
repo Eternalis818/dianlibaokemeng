@@ -116,7 +116,8 @@ export async function PUT(req: NextRequest) {
       if (key === "llm_api_key" && (!value || value.startsWith("sk-***"))) continue;
       if (value === undefined || value === "") continue;
       await prisma.$executeRawUnsafe(
-        `INSERT INTO "Settings" ("key", "value", "updatedAt") VALUES ('${key}', '${value.replace(/'/g, "''")}', NOW()) ON CONFLICT ("key") DO UPDATE SET "value" = EXCLUDED."value", "updatedAt" = EXCLUDED."updatedAt"`
+        `INSERT INTO "Settings" ("key", "value", "updatedAt") VALUES ($1, $2, NOW()) ON CONFLICT ("key") DO UPDATE SET "value" = EXCLUDED."value", "updatedAt" = EXCLUDED."updatedAt"`,
+        key, value
       );
     }
 
@@ -130,10 +131,11 @@ export async function PUT(req: NextRequest) {
         if (field === "api_key" && (!value || value.startsWith("sk-***"))) continue;
         // Empty value = delete override (fallback to default)
         if (value === "") {
-          await prisma.$executeRawUnsafe(`DELETE FROM "Settings" WHERE "key" = '${key}'`);
+          await prisma.$executeRawUnsafe(`DELETE FROM "Settings" WHERE "key" = $1`, key);
         } else {
           await prisma.$executeRawUnsafe(
-            `INSERT INTO "Settings" ("key", "value", "updatedAt") VALUES ('${key}', '${value.replace(/'/g, "''")}', NOW()) ON CONFLICT ("key") DO UPDATE SET "value" = EXCLUDED."value", "updatedAt" = EXCLUDED."updatedAt"`
+            `INSERT INTO "Settings" ("key", "value", "updatedAt") VALUES ($1, $2, NOW()) ON CONFLICT ("key") DO UPDATE SET "value" = EXCLUDED."value", "updatedAt" = EXCLUDED."updatedAt"`,
+            key, String(value)
           );
         }
       }
@@ -146,7 +148,8 @@ export async function PUT(req: NextRequest) {
       try { parsed = typeof features === "string" ? JSON.parse(features) : features; } catch { parsed = {}; }
       for (const [key, enabled] of Object.entries(parsed)) {
         await prisma.$executeRawUnsafe(
-          `INSERT INTO "Settings" ("key", "value", "updatedAt") VALUES ('${key}', '${enabled ? "on" : "off"}', NOW()) ON CONFLICT ("key") DO UPDATE SET "value" = EXCLUDED."value", "updatedAt" = EXCLUDED."updatedAt"`
+          `INSERT INTO "Settings" ("key", "value", "updatedAt") VALUES ($1, $2, NOW()) ON CONFLICT ("key") DO UPDATE SET "value" = EXCLUDED."value", "updatedAt" = EXCLUDED."updatedAt"`,
+          key, enabled ? "on" : "off"
         );
       }
     }
@@ -159,11 +162,12 @@ export async function PUT(req: NextRequest) {
         // Skip masked webhook URLs
         if (key === "push_webhook_url" && value.includes("***")) continue;
         if (value === "" || value === undefined) {
-          await prisma.$executeRawUnsafe(`DELETE FROM "Settings" WHERE "key" = '${key}'`);
+          await prisma.$executeRawUnsafe(`DELETE FROM "Settings" WHERE "key" = $1`, key);
         } else {
-          const safeVal = String(value).replace(/'/g, "''");
+          const safeVal = String(value);
           await prisma.$executeRawUnsafe(
-            `INSERT INTO "Settings" ("key", "value", "updatedAt") VALUES ('${key}', '${safeVal}', NOW()) ON CONFLICT ("key") DO UPDATE SET "value" = EXCLUDED."value", "updatedAt" = EXCLUDED."updatedAt"`
+            `INSERT INTO "Settings" ("key", "value", "updatedAt") VALUES ($1, $2, NOW()) ON CONFLICT ("key") DO UPDATE SET "value" = EXCLUDED."value", "updatedAt" = EXCLUDED."updatedAt"`,
+            key, safeVal
           );
         }
       }

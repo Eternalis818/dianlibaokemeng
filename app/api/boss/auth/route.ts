@@ -10,11 +10,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "请输入手机号和PIN码" }, { status: 400 });
     }
 
-    const boss = await prisma.$queryRawUnsafe<
+    const boss = await prisma.$queryRaw<
       { id: number; name: string; phone: string; project: string | null; role: string }[]
-    >(
-      `SELECT "id", "name", "phone", "project", "role" FROM "Boss" WHERE "phone" = '${phone}' AND "loginPin" = '${pin}' AND "isActive" = true LIMIT 1`
-    );
+    >`SELECT "id", "name", "phone", "project", "role" FROM "Boss" WHERE "phone" = ${phone} AND "loginPin" = ${pin} AND "isActive" = true LIMIT 1`;
 
     if (!boss.length) {
       return NextResponse.json({ error: "手机号或PIN码错误" }, { status: 401 });

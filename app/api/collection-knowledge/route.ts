@@ -9,8 +9,10 @@ export async function GET(req: NextRequest) {
     const search = searchParams.get("search");
 
     let where = [];
-    if (category) where.push(`category = '${category}'`);
-    if (search) where.push(`(title ILIKE '%${search}%' OR content ILIKE '%${search}%')`);
+    let params: any[] = [];
+    let paramIdx = 1;
+    if (category) { where.push(`category = $${paramIdx++}`); params.push(category); }
+    if (search) { where.push(`(title ILIKE $${paramIdx} OR content ILIKE $${paramIdx})`); params.push(`%${search}%`); paramIdx++; }
     const whereClause = where.length > 0 ? "WHERE " + where.join(" AND ") : "";
 
     const articles = await prisma.$queryRawUnsafe<any[]>(`
@@ -18,7 +20,7 @@ export async function GET(req: NextRequest) {
         "createdAt", "updatedAt"
       FROM "CollectionKnowledge" ${whereClause}
       ORDER BY "sortBy" ASC, "createdAt" DESC
-    `);
+    `, ...params);
 
     // 解析 tags
     const result = articles.map((a: any) => {
@@ -48,12 +50,9 @@ export async function POST(req: NextRequest) {
 
     const result = await prisma.$queryRawUnsafe<any[]>(`
       INSERT INTO "CollectionKnowledge" (category, "subCategory", title, content, tags, "isEncrypted", "isBuiltIn")
-      VALUES ('${category}', ${subCategory ? `'${subCategory.replace(/'/g, "''")}'` : "NULL"},
-        '${title.replace(/'/g, "''")}', '${content.replace(/'/g, "''")}',
-        ${tagsJson ? `'${tagsJson.replace(/'/g, "''")}'` : "NULL"},
-        ${isEncrypted ? "true" : "false"}, false)
+      VALUES ($1, $2, $3, $4, $5, $6, false)
       RETURNING *
-    `);
+    `, category, subCategory || null, title, content, tagsJson, isEncrypted ? true : false);
 
     return Response.json({ ok: true, article: result[0] });
   } catch (e) {

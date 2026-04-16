@@ -10,7 +10,8 @@ export async function GET(req: NextRequest) {
 
     const where = status ? { status } : {};
     const tickets = await prisma.$queryRawUnsafe<any[]>(
-      `SELECT * FROM "FeedbackTicket" ${status ? `WHERE "status" = '${status}'` : ""} ORDER BY "createdAt" DESC LIMIT 100`
+      `SELECT * FROM "FeedbackTicket" ${status ? `WHERE "status" = $1` : ""} ORDER BY "createdAt" DESC LIMIT 100`,
+      ...(status ? [status] : [])
     );
 
     // 解析 screenshots JSON
@@ -44,12 +45,9 @@ export async function POST(req: NextRequest) {
     // 插入数据库
     const result = await prisma.$queryRawUnsafe<any[]>(
       `INSERT INTO "FeedbackTicket" (type, subject, content, screenshots, source, "bossId", "contactInfo")
-       VALUES ('${type}', '${subject.replace(/'/g, "''")}', '${content.replace(/'/g, "''")}',
-         ${screenshotsJson ? `'${screenshotsJson.replace(/'/g, "''")}'` : "NULL"},
-         '${source || "admin"}',
-         ${bossId || "NULL"},
-         ${contactInfo ? `'${contactInfo.replace(/'/g, "''")}'` : "NULL"})
-       RETURNING *`
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING *`,
+      type, subject, content, screenshotsJson, source || "admin", bossId || null, contactInfo || null
     );
 
     const ticket = result[0];

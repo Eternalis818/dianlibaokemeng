@@ -12,18 +12,21 @@ export async function PATCH(
     const { title, content, tags, category, subCategory, sortBy } = body;
 
     const sets: string[] = [];
-    if (title !== undefined) sets.push(`title = '${title.replace(/'/g, "''")}'`);
-    if (content !== undefined) sets.push(`content = '${content.replace(/'/g, "''")}'`);
-    if (category !== undefined) sets.push(`category = '${category}'`);
-    if (subCategory !== undefined) sets.push(subCategory ? `"subCategory" = '${subCategory.replace(/'/g, "''")}'` : `"subCategory" = NULL`);
+    const values: any[] = [];
+    let paramIdx = 1;
+    if (title !== undefined) { sets.push(`title = $${paramIdx++}`); values.push(title); }
+    if (content !== undefined) { sets.push(`content = $${paramIdx++}`); values.push(content); }
+    if (category !== undefined) { sets.push(`category = $${paramIdx++}`); values.push(category); }
+    if (subCategory !== undefined) { sets.push(`"subCategory" = $${paramIdx++}`); values.push(subCategory || null); }
     if (tags !== undefined) {
       const tagsJson = tags && tags.length > 0 ? JSON.stringify(tags) : null;
-      sets.push(tagsJson ? `tags = '${tagsJson.replace(/'/g, "''")}'` : "tags = NULL");
+      sets.push(`tags = $${paramIdx++}`); values.push(tagsJson);
     }
-    if (sortBy !== undefined) sets.push(`"sortBy" = ${sortBy}`);
+    if (sortBy !== undefined) { sets.push(`"sortBy" = $${paramIdx++}`); values.push(sortBy); }
     sets.push(`"updatedAt" = now()`);
 
-    await prisma.$executeRawUnsafe(`UPDATE "CollectionKnowledge" SET ${sets.join(", ")} WHERE "id" = ${id}`);
+    values.push(parseInt(id));
+    await prisma.$executeRawUnsafe(`UPDATE "CollectionKnowledge" SET ${sets.join(", ")} WHERE "id" = $${paramIdx}`, ...values);
     return Response.json({ ok: true });
   } catch (e) {
     console.error("knowledge update error:", e);
@@ -39,7 +42,7 @@ export async function DELETE(
   try {
     const { id } = await params;
     // 只允许删除非内置条目
-    await prisma.$executeRawUnsafe(`DELETE FROM "CollectionKnowledge" WHERE "id" = ${id} AND "isBuiltIn" = false`);
+    await prisma.$executeRawUnsafe(`DELETE FROM "CollectionKnowledge" WHERE "id" = $1 AND "isBuiltIn" = false`, parseInt(id));
     return Response.json({ ok: true });
   } catch (e) {
     console.error("knowledge delete error:", e);

@@ -16,17 +16,18 @@ export async function PATCH(
       return Response.json({ error: "无效状态" }, { status: 400 });
     }
 
-    const rewardDaysValue = status === "adopted" && rewardDays ? rewardDays : "NULL";
-    const adminReplyValue = adminReply ? `'${adminReply.replace(/'/g, "''")}'` : "NULL";
+    const rewardDaysValue = status === "adopted" && rewardDays ? rewardDays : null;
 
     await prisma.$executeRawUnsafe(
-      `UPDATE "FeedbackTicket" SET "status" = '${status}', "rewardDays" = ${rewardDaysValue}, "adminReply" = ${adminReplyValue}, "updatedAt" = now() WHERE "id" = ${id}`
+      `UPDATE "FeedbackTicket" SET "status" = $1, "rewardDays" = $2, "adminReply" = $3, "updatedAt" = now() WHERE "id" = $4`,
+      status, rewardDaysValue, adminReply || null, parseInt(id)
     );
 
     // 采纳时发送邮件通知 + 延长订阅
     if (status === "adopted" && rewardDays > 0 && contactEmail) {
       const ticketRes = await prisma.$queryRawUnsafe<any[]>(
-        `SELECT * FROM "FeedbackTicket" WHERE "id" = ${id}`
+        `SELECT * FROM "FeedbackTicket" WHERE "id" = $1`,
+        parseInt(id)
       );
       const ticket = ticketRes[0];
 
@@ -42,7 +43,8 @@ export async function PATCH(
       if (ticket?.bossId) {
         try {
           await prisma.$executeRawUnsafe(
-            `UPDATE "Subscription" SET "currentPeriodEnd" = "currentPeriodEnd" + interval '${rewardDays} days' WHERE "bossId" = ${ticket.bossId}`
+            `UPDATE "Subscription" SET "currentPeriodEnd" = "currentPeriodEnd" + interval '1 day' * $1 WHERE "bossId" = $2`,
+            rewardDays, ticket.bossId
           );
         } catch {
           // 可能没有订阅记录
