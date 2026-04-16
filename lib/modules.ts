@@ -17,8 +17,10 @@ export const OPTIONAL_GROUPS = [
   {
     key: "construction",
     label: "施工管控",
-    desc: "施工过程偏差追踪与纠正",
+    desc: "派工管理、施工偏差追踪与纠正",
     modules: [
+      { key: "dispatches", label: "派工单" },
+      { key: "worker-groups", label: "工人班组" },
       { key: "corrections", label: "纠偏中心" },
     ],
   },
