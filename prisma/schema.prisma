@@ -22,9 +22,13 @@ model Worker {
   wageType      String?      // "daily" | "monthly" | "piecework"
   wageRate      Float?       // 日薪/月薪/计件单价
   loginPin      String?      // 工人登录PIN（手机后4位/身份证后4位）
+  role          String       @default("member") // "member" | "foreman"
   checkIns      CheckIn[]
   reports       Report[]
   corrections   Correction[]
+  dispatchWorkers      DispatchWorker[]
+  groupMembers         WorkerGroupMember[]
+  dispatchNotifications DispatchNotification[]
 }
 
 // ─── 考勤签到（支持 Geofencing 自动触发） ────────────────────────────────────
@@ -126,17 +130,57 @@ model Correction {
 // ─── 工程项目（含 Geofencing 围栏配置） ──────────────────────────────────────
 
 model Project {
-  id          Int      @id @default(autoincrement())
-  name        String   @unique
-  code        String   @unique
-  budget      Float    @default(0)
-  spent       Float    @default(0)
-  profitRate  Float    @default(0)
-  status      String   @default("active")
+  id                  Int               @id @default(autoincrement())
+  name                String            @unique
+  code                String            @unique
+  budget              Float             @default(0)
+  spent               Float             @default(0)
+  profitRate          Float             @default(0)
+  status              String            @default("active")
+
+  // 合同与商务管理
+  contractAmount      Float?            @default(0)     // 合同暂定价
+  advancePaymentRatio Float?            @default(0)     // 预付款比例 (例如: 0.1 代表 10%)
+
   // Geofencing
-  centerLat   Float?
-  centerLng   Float?
-  geoRadius   Int?     @default(300)  // 围栏半径（米）
+  centerLat           Float?
+  centerLng           Float?
+  geoRadius           Int?              @default(300)  // 围栏半径（米）
+  createdAt           DateTime          @default(now())
+
+  // 关联
+  payments            ContractPayment[]
+  expenses            ProjectExpense[]
+}
+
+// ─── 合同款项进度记录 ────────────────────────────────────────────────────────
+model ContractPayment {
+  id              Int      @id @default(autoincrement())
+  projectId       Int
+  project         Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  nodeName        String   // "预付款", "一期进度款", "结算款"等
+  amount          Float    // 申报/应收金额
+  receivedAmount  Float    @default(0) // 已到账金额
+  status          String   @default("pending") // "pending" | "processing" | "completed"
+  expectedDate    DateTime? // 预计提醒/报审日期
+  actualDate      DateTime? // 实际到账日期
+  attachments     String[] @default([]) // 报审资料/凭证（关联AI生成的工资表等）
+  note            String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @default(now()) @updatedAt
+}
+
+// ─── 项目独立杂费记录（材料、机具、罚款等隐性成本） ─────────────────────────────
+model ProjectExpense {
+  id          Int      @id @default(autoincrement())
+  projectId   Int
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  type        String   // "material" | "machinery" | "fine" | "hospitality" | "other"
+  amount      Float
+  expenseDate DateTime @default(now())
+  handler     String?  // 经办人
+  note        String?  // 费用说明
+  photoUrls   String[] @default([]) // 票据或现场照片
   createdAt   DateTime @default(now())
 }
 
@@ -243,4 +287,187 @@ model Equipment {
   note           String?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @default(now()) @updatedAt
+}
+
+// ─── 派工单 ─────────────────────────────────────────────────────────────────
+
+model Dispatch {
+  id          Int      @id @default(autoincrement())
+  projectCode String?                        // 关联项目编号
+  location    String?                        // 施工地点
+  content     String                         // 派工内容描述
+  startTime   DateTime?                      // 计划开始时间
+  endTime     DateTime?                      // 计划结束时间
+  photoPath   String?                        // 原始工作票照片路径（AI识别来源）
+  status      String   @default("draft")     // draft | sent | completed | cancelled
+  createdBy   String   @default("admin")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now()) @updatedAt
+
+  workers        DispatchWorker[]
+  notifications  DispatchNotification[]
+}
+
+model DispatchWorker {
+  id         Int      @id @default(autoincrement())
+  dispatchId Int
+  workerId   String
+  role       String?                         // 分工描述（自由文本）
+  createdAt  DateTime @default(now())
+
+  dispatch   Dispatch @relation(fields: [dispatchId], references: [id], onDelete: Cascade)
+  worker     Worker   @relation(fields: [workerId], references: [id])
+
+  @@unique([dispatchId, workerId])
+}
+
+// ─── 预设班组 ───────────────────────────────────────────────────────────────
+
+model WorkerGroup {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now()) @updatedAt
+
+  members    WorkerGroupMember[]
+}
+
+model WorkerGroupMember {
+  id       Int      @id @default(autoincrement())
+  groupId  Int
+  workerId String
+  role     String?  // 在班组中的默认角色
+  addedAt  DateTime @default(now())
+
+  group    WorkerGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  worker   Worker      @relation(fields: [workerId], references: [id])
+
+  @@unique([groupId, workerId])
+}
+
+// ─── 站内通知 ───────────────────────────────────────────────────────────────
+
+model DispatchNotification {
+  id         Int      @id @default(autoincrement())
+  workerId   String
+  dispatchId Int
+  type       String   @default("dispatch")  // dispatch | reminder
+  read       Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  worker     Worker   @relation(fields: [workerId], references: [id])
+  dispatch   Dispatch @relation(fields: [dispatchId], references: [id])
+
+  @@unique([workerId, dispatchId])
+}
+
+// ─── 客服反馈 ────────────────────────────────────────────────────────────────
+
+model FeedbackTicket {
+  id           Int      @id @default(autoincrement())
+  type         String                    // feature | bug | other
+  subject      String                    // 标题
+  content      String                    // 详细描述
+  screenshots  String?                   // JSON string[]
+  status       String   @default("pending")  // pending | adopted | closed
+  rewardDays   Int?                      // 采纳后奖励天数
+  adminReply   String?                   // 管理员回复
+  source       String   @default("admin")    // admin | boss
+  bossId       Int?                      // 关联 Boss（如果是老板提交）
+  contactInfo  String?                   // 联系方式
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @default(now()) @updatedAt
+}
+
+// ─── 收款管理 ────────────────────────────────────────────────────────────────
+
+model Debtor {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique                  // 债主名称
+  type        String                            // state_owned | affiliated | private | government | general_contractor
+  creditCode  String?                           // 统一社会信用代码
+  address     String?                           // 地址
+  tags        String?                           // JSON string[] 标签（如"国网三产""城投"）
+  creditScore Int      @default(50)             // 信誉评分 0~100
+  notes       String?                           // 备注
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now()) @updatedAt
+
+  contacts     DebtorContact[]
+  receivables  Receivable[]
+}
+
+model DebtorContact {
+  id               Int     @id @default(autoincrement())
+  debtorId         Int
+  name             String                           // 姓名
+  role             String?                          // 职务
+  phone            String?                          // 电话
+  wechat           String?                          // 微信
+  relationshipLevel String  @default("normal")      // close | normal | distant
+  isDecisionMaker  Boolean @default(false)           // 是否决策人
+  isFinance        Boolean @default(false)           // 是否财务
+  notes            String?                          // 备注
+
+  debtor Debtor @relation(fields: [debtorId], references: [id], onDelete: Cascade)
+
+  @@index([debtorId])
+}
+
+model Receivable {
+  id                 Int      @id @default(autoincrement())
+  projectId          String?                          // 关联项目 code
+  debtorId           Int                              // 关联债主
+  contractAmount     Float                             // 合同总金额
+  receivedAmount     Float    @default(0)              // 已收金额
+  contractDate       DateTime?                         // 合同签订日期
+  paymentTerms       String?                           // 付款条款描述
+  invoiceRequired    String?                           // 开票要求（专票/普票）
+  overdueRate        Float?                            // 逾期利率（日万分之X）
+  statuteOfLimitDate DateTime?                         // 诉讼时效截止日
+  status             String   @default("normal")       // normal | overdue | collecting | legal | closed
+  notes              String?                           // 备注
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @default(now()) @updatedAt
+
+  debtor     Debtor                 @relation(fields: [debtorId], references: [id])
+  milestones ReceivableMilestone[]
+}
+
+model ReceivableMilestone {
+  id             Int      @id @default(autoincrement())
+  receivableId   Int
+  name           String                             // 节点名称
+  percentage     Float                               // 占比 %
+  amount         Float                               // 应收金额
+  dueDate        DateTime?                           // 应收日期
+  actualDate     DateTime?                           // 实收日期
+  requiredDocs   String?                             // JSON string[] 所需资料清单
+  providedDocs   String?                             // JSON string[] 已准备资料
+  docsReady      Boolean  @default(false)             // 资料是否齐备
+  status         String   @default("pending")         // pending | ready | billed | collected
+  overdueDays    Int      @default(0)                 // 逾期天数（自动计算）
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @default(now()) @updatedAt
+
+  receivable Receivable @relation(fields: [receivableId], references: [id], onDelete: Cascade)
+
+  @@index([receivableId])
+}
+
+// ─── 收款知识库 ──────────────────────────────────────────────────────────────
+
+model CollectionKnowledge {
+  id          Int      @id @default(autoincrement())
+  category    String                        // strategy | script | legal | industry | specialized | custom
+  subCategory String?                       // 子分类（如：国网三产、城投等）
+  title       String                        // 标题
+  content     String                        // 正文内容（专有内容加密存储）
+  tags        String?                       // JSON string[] 标签
+  isEncrypted Boolean  @default(false)      // 是否加密（专有知识库）
+  isBuiltIn   Boolean  @default(true)       // 是否系统预置
+  sortBy      Int      @default(0)          // 排序权重
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now()) @updatedAt
 }

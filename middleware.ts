@@ -12,6 +12,8 @@ const WORKER_PATHS = [
   "/api/auth/admin",
   "/api/boss/auth", // boss login/logout
   "/api/plans",     // plan listing (public)
+  "/api/dispatches/worker",
+  "/api/notifications",
 ];
 
 // Boss paths that don't require active subscription
