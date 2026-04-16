@@ -1,9 +1,22 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
-    const workers = await prisma.worker.findMany({ orderBy: { name: "asc" } });
+    const { searchParams } = new URL(req.url);
+    const search = searchParams.get("search");
+
+    const where = search
+      ? {
+          OR: [
+            { name: { contains: search, mode: "insensitive" as const } },
+            { phone: { contains: search } },
+            { idCard: { contains: search } },
+          ],
+        }
+      : {};
+
+    const workers = await prisma.worker.findMany({ where, orderBy: { name: "asc" } });
     return Response.json(workers);
   } catch (e) {
     const msg = e instanceof Error ? e.message : "unknown error";

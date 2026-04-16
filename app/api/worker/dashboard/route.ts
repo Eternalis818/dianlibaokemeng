@@ -5,19 +5,16 @@ import { prisma } from "@/lib/prisma";
  * GET /api/worker/dashboard
  * Header: x-worker-id
  *
- * 工人首页数据：积分、连续作业天数、本月统计、最近奖罚
+ * 工人首页数据：连续作业天数、本月统计
  */
 export async function GET(req: NextRequest) {
   const workerId = req.headers.get("x-worker-id");
   if (!workerId) return Response.json({ error: "缺少 workerId" }, { status: 400 });
 
   try {
-    // 1. 工人基础信息（含积分）
-    const workers = await prisma.$queryRawUnsafe<
-      { id: string; name: string; project: string; wageType: string | null; wageRate: number | null; rewardPoints: number; penaltyPoints: number; isLocked: boolean }[]
-    >(`SELECT id, name, project, "wageType", "wageRate", "rewardPoints", "penaltyPoints", "isLocked" FROM "Worker" WHERE id = '${workerId}'`);
-    if (workers.length === 0) return Response.json({ error: "工人不存在" }, { status: 404 });
-    const w = workers[0];
+    // 1. 工人基础信息
+    const worker = await prisma.worker.findUnique({ where: { id: workerId } });
+    if (!worker) return Response.json({ error: "工人不存在" }, { status: 404 });
 
     const monthStart = new Date();
     monthStart.setDate(1);
@@ -52,31 +49,14 @@ export async function GET(req: NextRequest) {
     );
     const photoCount = parseInt(photoRows[0]?.cnt || "0", 10);
 
-    // 5. 连续作业天数（基于有报量的日期）
+    // 5. 连续作业天数
     const streak = await calcConsecutiveDays(workerId);
 
-    // 6. 最近奖励
-    const recentRewards = await prisma.$queryRawUnsafe<
-      { id: number; points: number; amount: number; reason: string; createdAt: string }[]
-    >(
-      `SELECT id, points, amount, reason, "createdAt"::text FROM "WorkerReward" WHERE "workerId" = '${workerId}' ORDER BY "createdAt" DESC LIMIT 5`
-    );
-
-    // 7. 最近处罚
-    const recentPenalties = await prisma.$queryRawUnsafe<
-      { id: number; points: number; reason: string; fineAmount: number; finePaid: boolean; categoryName: string; createdAt: string }[]
-    >(
-      `SELECT wp.id, wp.points, wp.reason, wp."fineAmount", wp."finePaid", pc.name as "categoryName", wp."createdAt"::text
-       FROM "WorkerPenalty" wp JOIN "PenaltyCategory" pc ON wp."categoryId" = pc.id
-       WHERE wp."workerId" = '${workerId}' ORDER BY wp."createdAt" DESC LIMIT 5`
-    );
-
-    // 8. 日工月度收益
-    const monthEarnings = w.wageType === "daily" && w.wageRate ? attendance * w.wageRate : null;
+    // 6. 日工月度收益
+    const monthEarnings = worker.wageType === "daily" && worker.wageRate ? attendance * worker.wageRate : null;
 
     return Response.json({
-      worker: { id: w.id, name: w.name, project: w.project, wageType: w.wageType, wageRate: w.wageRate },
-      points: { rewardPoints: Number(w.rewardPoints), penaltyPoints: Number(w.penaltyPoints), isLocked: w.isLocked },
+      worker: { id: worker.id, name: worker.name, project: worker.project, wageType: worker.wageType, wageRate: worker.wageRate },
       streak,
       monthStats: {
         attendance,
@@ -91,8 +71,6 @@ export async function GET(req: NextRequest) {
         })),
         monthEarnings,
       },
-      recentRewards: recentRewards.map((r) => ({ ...r, amount: Number(r.amount), points: Number(r.points) })),
-      recentPenalties: recentPenalties.map((p) => ({ ...p, fineAmount: Number(p.fineAmount), points: Number(p.points) })),
     });
   } catch (e) {
     console.error("worker/dashboard error:", e);
@@ -153,7 +131,6 @@ async function calcConsecutiveDays(workerId: string): Promise<{ days: number; ne
         nextReward = tier.points;
         break;
       }
-      // 已经超过最后一个档位
       nextThreshold = tier.days;
       nextReward = tier.points;
     }

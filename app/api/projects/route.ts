@@ -9,7 +9,7 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { name, code, budget, profitRate, status, centerLat, centerLng, geoRadius } = body;
+    const { name, code, budget, profitRate, status, centerLat, centerLng, geoRadius, contractAmount, advancePaymentRatio } = body;
     if (!name || !code) {
       return NextResponse.json({ error: "项目名称和编号必填" }, { status: 400 });
     }
@@ -23,6 +23,8 @@ export async function POST(req: NextRequest) {
         centerLat: centerLat ? Number(centerLat) : null,
         centerLng: centerLng ? Number(centerLng) : null,
         geoRadius: geoRadius ? Number(geoRadius) : 300,
+        contractAmount: contractAmount ? Number(contractAmount) : 0,
+        advancePaymentRatio: advancePaymentRatio ? Number(advancePaymentRatio) : 0,
       },
     });
     return NextResponse.json(project, { status: 201 });
