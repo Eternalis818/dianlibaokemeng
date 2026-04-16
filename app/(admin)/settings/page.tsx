@@ -1,5 +1,11 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
+import {
+  CORE_MODULES,
+  OPTIONAL_GROUPS,
+  ALL_OPTIONAL_KEYS,
+  MODULE_STORAGE_KEY,
+} from "@/lib/modules";
 
 interface SettingItem {
   label: string;
@@ -73,6 +79,13 @@ export default function SettingsPage() {
   // Active tab
   const [activeTab, setActiveTab] = useState<string>("default");
 
+  // Top-level section tab: "ai" | "modules" | "push"
+  const [sectionTab, setSectionTab] = useState<"ai" | "modules" | "push">("ai");
+
+  // Module visibility state
+  const [enabledModules, setEnabledModules] = useState<string[]>([...CORE_MODULES]);
+  const [moduleSaveMsg, setModuleSaveMsg] = useState<string | null>(null);
+
   // Per-feature configs
   const [featureConfigs, setFeatureConfigs] = useState<Record<string, FeatureConfig>>({
     default: { apiKey: "", model: "", baseUrl: "" },
@@ -116,6 +129,14 @@ export default function SettingsPage() {
   }, []);
 
   useEffect(() => { fetchSettings(); }, [fetchSettings]);
+
+  // 加载模块配置
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(MODULE_STORAGE_KEY);
+      setEnabledModules(raw ? JSON.parse(raw) : [...CORE_MODULES]);
+    } catch { setEnabledModules([...CORE_MODULES]); }
+  }, []);
 
   const handleSave = async () => {
     setSaving(true);
@@ -189,6 +210,21 @@ export default function SettingsPage() {
     }
   };
 
+  // 模块开关切换
+  const toggleModule = (key: string) => {
+    setEnabledModules((prev) =>
+      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]
+    );
+  };
+
+  // 保存模块配置
+  const saveModules = () => {
+    const merged = new Set([...CORE_MODULES, ...enabledModules]);
+    localStorage.setItem(MODULE_STORAGE_KEY, JSON.stringify([...merged]));
+    setModuleSaveMsg("模块配置已保存，刷新侧边栏生效");
+    setTimeout(() => setModuleSaveMsg(null), 3000);
+  };
+
   if (loading) {
     return <div className="p-8 animate-pulse text-sm" style={{ color: "var(--muted)" }}>加载中...</div>;
   }
@@ -203,8 +239,31 @@ export default function SettingsPage() {
       {/* Title */}
       <div className="mb-6">
         <h1 className="text-xl font-bold text-white">系统设置</h1>
-        <p className="text-sm mt-1" style={{ color: "var(--muted)" }}>不同 AI 功能可配置不同模型，灵活搭配最优性价比</p>
+        <p className="text-sm mt-1" style={{ color: "var(--muted)" }}>管理系统配置、功能模块和推送设置</p>
       </div>
+
+      {/* Section Tabs */}
+      <div className="flex gap-1 p-1 rounded-lg mb-6" style={{ background: "var(--bg)" }}>
+        {([
+          { key: "ai" as const, label: "AI 模型", desc: "模型与接口配置" },
+          { key: "modules" as const, label: "功能模块", desc: "侧边栏模块管理" },
+          { key: "push" as const, label: "定时推送", desc: "日报推送配置" },
+        ]).map((tab) => (
+          <button key={tab.key} onClick={() => setSectionTab(tab.key)}
+            className="flex-1 text-xs py-2 rounded-md font-medium transition-all"
+            style={{
+              background: sectionTab === tab.key ? "var(--surface)" : "transparent",
+              color: sectionTab === tab.key ? "white" : "var(--muted)",
+              boxShadow: sectionTab === tab.key ? "0 1px 3px rgba(0,0,0,0.2)" : "none",
+            }}>
+            <div>{tab.label}</div>
+            <div className="text-[9px] mt-0.5 opacity-60">{tab.desc}</div>
+          </button>
+        ))}
+      </div>
+
+      {/* === AI 模型配置 === */}
+      {sectionTab === "ai" && (<>
 
       {/* Model Tabs */}
       <div className="flex gap-1 p-1 rounded-lg mb-6" style={{ background: "var(--bg)" }}>
@@ -336,12 +395,90 @@ export default function SettingsPage() {
           ))}
         </div>
       </div>
+      </>)}
 
-      {/* Push Config */}
-      <div className="mt-10">
-        <h2 className="text-lg font-bold text-white mb-1">定时推送</h2>
-        <p className="text-xs mb-4" style={{ color: "var(--muted)" }}>配置施工日报/周报自动推送到微信或企业微信</p>
+      {/* === 功能模块管理 === */}
+      {sectionTab === "modules" && (
+        <div>
+          <div className="mb-4">
+            <h2 className="text-lg font-bold text-white mb-1">功能模块</h2>
+            <p className="text-xs" style={{ color: "var(--muted)" }}>
+              按需启用业务模块，首次登录仅展示核心功能。开启后刷新侧边栏即可看到。
+            </p>
+          </div>
 
+          {/* 核心模块（只读） */}
+          <div className="mb-6">
+            <div className="text-xs font-medium mb-2" style={{ color: "var(--muted)" }}>
+              核心模块（始终启用）
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                { key: "dashboard", label: "今日看板" },
+                { key: "projects", label: "项目管理" },
+                { key: "workers", label: "工人管理" },
+                { key: "reports", label: "报量审核" },
+                { key: "receivables", label: "收款管理" },
+              ].map((m) => (
+                <div key={m.key} className="p-3 rounded-xl flex items-center justify-between opacity-60"
+                  style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+                  <span className="text-sm text-white">{m.label}</span>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full" style={{ background: "rgba(16,185,129,0.15)", color: "#34d399" }}>核心</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* 可选模块分组 */}
+          <div className="space-y-5">
+            {OPTIONAL_GROUPS.map((group) => (
+              <div key={group.key}>
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-sm font-medium text-white">{group.label}</span>
+                  <span className="text-[10px]" style={{ color: "var(--muted)" }}>{group.desc}</span>
+                </div>
+                <div className="space-y-2">
+                  {group.modules.map((mod) => {
+                    const checked = enabledModules.includes(mod.key);
+                    return (
+                      <div key={mod.key} className="p-4 rounded-xl flex items-center justify-between transition-all"
+                        style={{
+                          background: checked ? "rgba(59,130,246,0.08)" : "var(--surface)",
+                          border: `1px solid ${checked ? "rgba(59,130,246,0.3)" : "var(--border)"}`,
+                        }}>
+                        <div>
+                          <div className="text-sm font-medium" style={{ color: checked ? "white" : "var(--muted)" }}>{mod.label}</div>
+                        </div>
+                        <button onClick={() => toggleModule(mod.key)}
+                          className="relative w-11 h-6 rounded-full transition-all"
+                          style={{ background: checked ? "var(--accent)" : "var(--border)" }}>
+                          <div className="absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all"
+                            style={{ left: checked ? "22px" : "2px" }} />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* 保存按钮 */}
+          <div className="mt-6 flex items-center gap-3">
+            <button onClick={saveModules}
+              className="px-6 py-2.5 rounded-lg text-sm font-medium text-white"
+              style={{ background: "linear-gradient(135deg, #3b82f6, #2563eb)", boxShadow: "0 0 20px rgba(59,130,246,0.25)" }}>
+              保存模块配置
+            </button>
+            {moduleSaveMsg && (
+              <span className="text-sm" style={{ color: "#34d399" }}>{moduleSaveMsg}</span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* === 定时推送 === */}
+      {sectionTab === "push" && (
         <div className="space-y-4">
           {/* Enable toggle */}
           <div className="p-4 rounded-xl flex items-center justify-between"
@@ -504,7 +641,7 @@ export default function SettingsPage() {
             </div>
           )}
         </div>
-      </div>
+      )}
     </div>
   );
 }
