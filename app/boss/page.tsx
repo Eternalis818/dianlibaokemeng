@@ -5,8 +5,9 @@ import AccountingTab from "./components/AccountingTab";
 import QuantitiesTab from "./components/QuantitiesTab";
 import SubscribeSheet from "./components/SubscribeSheet";
 import ReferralCard from "./components/ReferralCard";
+import DailyValueTab from "./components/DailyValueTab";
 
-type Tab = "board" | "work" | "visas" | "accounting" | "quantities";
+type Tab = "board" | "work" | "visas" | "accounting" | "quantities" | "value";
 type Status = "pending" | "approved" | "rejected";
 
 interface BossProfile {
@@ -933,6 +934,16 @@ const TABS: {
       </svg>
     ),
   },
+  {
+    id: "value",
+    label: "产值",
+    icon: (
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M12 2v20" />
+        <path d="M17 6H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H7" />
+      </svg>
+    ),
+  },
 ];
 
 // ─── Main Boss Page ────────────────────────────────────────────────────────────
@@ -1152,11 +1163,12 @@ export default function BossPage() {
         )}
         {tab === "accounting" && <AccountingTab />}
         {tab === "quantities" && <QuantitiesTab />}
+        {tab === "value" && <DailyValueTab />}
       </div>
 
       {/* Tab Bar */}
       <div
-        className="shrink-0 border-t grid grid-cols-5"
+        className="shrink-0 border-t grid grid-cols-6"
         style={{ borderColor: "var(--border)", background: "var(--surface)" }}
       >
         {TABS.map((t) => {
